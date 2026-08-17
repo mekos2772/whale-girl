@@ -1,0 +1,78 @@
+{
+  "asset_manifest": "assets/characters/mimi/library_v1/manifest.json",
+  "window": {
+    "width": 256,
+    "height": 384,
+    "always_on_top": true,
+    "transparent": true
+  },
+  "scheduler": {
+    "performance_cooldown_s": 45,
+    "idle_check_interval_s": 8,
+    "random_performance_probability": 0.08,
+    "after_landing_tidy_probability": 0.35
+  },
+  "drag": {
+    "velocity_smoothing": 0.28,
+    "dead_zone_px_s": 90,
+    "medium_enter_px_s": 260,
+    "medium_exit_px_s": 200,
+    "fast_enter_px_s": 950,
+    "fast_exit_px_s": 800,
+    "horizontal_bias": 1.15,
+    "micro_max_angle_deg": 0.35,
+    "spring_strength": 0.22,
+    "spring_damping": 0.72,
+    "long_press_s": 2.0,
+    "drag_start_move_px": 8.0
+  },
+  "live": {
+    "breath_period_s": 3.8,
+    "breath_amplitude": 0.65,
+    "gaze_smoothing": 0.18,
+    "max_head_angle_deg": 4,
+    "blink_interval_s": [
+      2.8,
+      6.5
+    ],
+    "gaze_translation_scale": 0.35,
+    "gaze_hair_counter_scale": 0.3
+  },
+  "physics": {
+    "gravity_px_s2": 2000.0,
+    "air_drag_per_s": 0.8,
+    "max_fall_speed_px_s": 2800.0,
+    "grounded_epsilon_px": 1.0
+  },
+  "rig": {
+    "note": "Fixed registration of the composed rig (fit to master_v1, feet at master y=1282, centre x=512) onto the full-frame ground root (256,744) / master y=1488 and canvas centre. Computed once by tools/calibrate_rig_root.py; never recomputed per frame.",
+    "master_scale": 0.78777,
+    "master_offset_x": 108.661871,
+    "master_offset_y": 478.079137
+  },
+  "scenario": {
+    "meal_windows": [
+      [
+        "11:00",
+        "13:00"
+      ],
+      [
+        "17:00",
+        "19:00"
+      ]
+    ],
+    "meal_probability": 0.3,
+    "idle_hot_tea_min": 15,
+    "idle_hug_min": 20,
+    "idle_drowse_min": 30,
+    "night_drowse_hours": [
+      22,
+      6
+    ],
+    "fortune_once_per_day": true,
+    "sneeze_probability_per_check": 0.03,
+    "shy_peek_probability_per_check": 0.02,
+    "travel_probability_per_check": 0.02,
+    "selfie_probability_per_check": 0.02
+  }
+}

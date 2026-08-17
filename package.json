@@ -12,7 +12,8 @@
   "files": [
     "lib/index.js",
     "cordis.patch.yml",
-    "README.md"
+    "README.md",
+    "pet/**"
   ],
   "dsh": {
     "bundle": {

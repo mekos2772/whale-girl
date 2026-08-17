@@ -1,0 +1,47 @@
+{
+  "id": "fun_poet_writer",
+  "name_zh": "写诗",
+  "description": "提笔构思并书写，适合创作或长文本生成。",
+  "status": "usable",
+  "enabled": true,
+  "kind": "full_frame",
+  "canvas": [
+    512,
+    768
+  ],
+  "ground_pivot": [
+    256,
+    744
+  ],
+  "frames": [
+    "usable/actions/fun_poet_writer/frames/0001.png",
+    "usable/actions/fun_poet_writer/frames/0002.png",
+    "usable/actions/fun_poet_writer/frames/0003.png",
+    "usable/actions/fun_poet_writer/frames/0004.png",
+    "usable/actions/fun_poet_writer/frames/0005.png",
+    "usable/actions/fun_poet_writer/frames/0006.png",
+    "usable/actions/fun_poet_writer/frames/0007.png",
+    "usable/actions/fun_poet_writer/frames/0008.png",
+    "usable/actions/fun_poet_writer/frames/0009.png",
+    "usable/actions/fun_poet_writer/frames/0010.png",
+    "usable/actions/fun_poet_writer/frames/0011.png",
+    "usable/actions/fun_poet_writer/frames/0012.png"
+  ],
+  "duration_ms": [
+    220,
+    240,
+    260,
+    280,
+    300,
+    300,
+    280,
+    260,
+    240,
+    240,
+    220,
+    280
+  ],
+  "loop": false,
+  "trigger": "random_performance",
+  "exit_state": "idle"
+}

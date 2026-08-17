@@ -1,0 +1,1135 @@
+{
+  "schema_version": 1,
+  "character": "Mimi",
+  "library_status": "runtime_allowlist",
+  "rule": "Only entries in usable_actions with enabled=true may be loaded by the application.",
+  "usable_actions": [
+    {
+      "id": "fun_cyber_fortune",
+      "name_zh": "赛博占卜",
+      "description": "掐指计算后展示神秘结果，适合随机提示或每日运势。",
+      "status": "usable",
+      "enabled": true,
+      "kind": "full_frame",
+      "canvas": [
+        512,
+        768
+      ],
+      "ground_pivot": [
+        256,
+        744
+      ],
+      "frames": [
+        "usable/actions/fun_cyber_fortune/frames/0001.png",
+        "usable/actions/fun_cyber_fortune/frames/0002.png",
+        "usable/actions/fun_cyber_fortune/frames/0003.png",
+        "usable/actions/fun_cyber_fortune/frames/0004.png",
+        "usable/actions/fun_cyber_fortune/frames/0005.png",
+        "usable/actions/fun_cyber_fortune/frames/0006.png",
+        "usable/actions/fun_cyber_fortune/frames/0007.png",
+        "usable/actions/fun_cyber_fortune/frames/0008.png",
+        "usable/actions/fun_cyber_fortune/frames/0009.png",
+        "usable/actions/fun_cyber_fortune/frames/0010.png",
+        "usable/actions/fun_cyber_fortune/frames/0011.png",
+        "usable/actions/fun_cyber_fortune/frames/0012.png"
+      ],
+      "duration_ms": [
+        200,
+        180,
+        220,
+        260,
+        300,
+        280,
+        300,
+        260,
+        280,
+        240,
+        240,
+        320
+      ],
+      "loop": false,
+      "trigger": "random_performance",
+      "exit_state": "idle"
+    },
+    {
+      "id": "fun_deep_think",
+      "name_zh": "托腮深思",
+      "description": "托腮、视线上移并沉思，适合 AI 正在组织答案。",
+      "status": "usable",
+      "enabled": true,
+      "kind": "full_frame",
+      "canvas": [
+        512,
+        768
+      ],
+      "ground_pivot": [
+        256,
+        744
+      ],
+      "frames": [
+        "usable/actions/fun_deep_think/frames/0001.png",
+        "usable/actions/fun_deep_think/frames/0002.png",
+        "usable/actions/fun_deep_think/frames/0003.png",
+        "usable/actions/fun_deep_think/frames/0004.png",
+        "usable/actions/fun_deep_think/frames/0005.png",
+        "usable/actions/fun_deep_think/frames/0006.png",
+        "usable/actions/fun_deep_think/frames/0007.png",
+        "usable/actions/fun_deep_think/frames/0008.png",
+        "usable/actions/fun_deep_think/frames/0009.png",
+        "usable/actions/fun_deep_think/frames/0010.png",
+        "usable/actions/fun_deep_think/frames/0011.png",
+        "usable/actions/fun_deep_think/frames/0012.png"
+      ],
+      "duration_ms": [
+        200,
+        200,
+        260,
+        280,
+        300,
+        300,
+        320,
+        280,
+        240,
+        220,
+        200,
+        300
+      ],
+      "loop": false,
+      "trigger": "random_performance",
+      "exit_state": "idle"
+    },
+    {
+      "id": "fun_facepalm",
+      "name_zh": "捂脸无语",
+      "description": "抬手捂脸并轻叹，适合失败、无语或错误提示。",
+      "status": "usable",
+      "enabled": true,
+      "kind": "full_frame",
+      "canvas": [
+        512,
+        768
+      ],
+      "ground_pivot": [
+        256,
+        744
+      ],
+      "frames": [
+        "usable/actions/fun_facepalm/frames/0001.png",
+        "usable/actions/fun_facepalm/frames/0002.png",
+        "usable/actions/fun_facepalm/frames/0003.png",
+        "usable/actions/fun_facepalm/frames/0004.png",
+        "usable/actions/fun_facepalm/frames/0005.png",
+        "usable/actions/fun_facepalm/frames/0006.png",
+        "usable/actions/fun_facepalm/frames/0007.png",
+        "usable/actions/fun_facepalm/frames/0008.png",
+        "usable/actions/fun_facepalm/frames/0009.png",
+        "usable/actions/fun_facepalm/frames/0010.png",
+        "usable/actions/fun_facepalm/frames/0011.png",
+        "usable/actions/fun_facepalm/frames/0012.png"
+      ],
+      "duration_ms": [
+        180,
+        180,
+        180,
+        180,
+        200,
+        260,
+        260,
+        300,
+        240,
+        260,
+        220,
+        340
+      ],
+      "loop": false,
+      "trigger": "random_performance",
+      "exit_state": "idle"
+    },
+    {
+      "id": "fun_hot_tea",
+      "name_zh": "喝热茶",
+      "description": "端起热茶、吹气、小口饮用并满足地放下。",
+      "status": "usable",
+      "enabled": true,
+      "kind": "full_frame",
+      "canvas": [
+        512,
+        768
+      ],
+      "ground_pivot": [
+        256,
+        744
+      ],
+      "frames": [
+        "usable/actions/fun_hot_tea/frames/0001.png",
+        "usable/actions/fun_hot_tea/frames/0002.png",
+        "usable/actions/fun_hot_tea/frames/0003.png",
+        "usable/actions/fun_hot_tea/frames/0004.png",
+        "usable/actions/fun_hot_tea/frames/0005.png",
+        "usable/actions/fun_hot_tea/frames/0006.png",
+        "usable/actions/fun_hot_tea/frames/0007.png",
+        "usable/actions/fun_hot_tea/frames/0008.png",
+        "usable/actions/fun_hot_tea/frames/0009.png",
+        "usable/actions/fun_hot_tea/frames/0010.png",
+        "usable/actions/fun_hot_tea/frames/0011.png",
+        "usable/actions/fun_hot_tea/frames/0012.png"
+      ],
+      "duration_ms": [
+        180,
+        180,
+        200,
+        220,
+        180,
+        180,
+        180,
+        220,
+        180,
+        220,
+        300,
+        320
+      ],
+      "loop": false,
+      "trigger": "random_performance",
+      "exit_state": "idle"
+    },
+    {
+      "id": "fun_hug_whale_plush",
+      "name_zh": "抱鲸鱼玩偶",
+      "description": "抱紧鲸鱼玩偶轻蹭，适合安慰和休息。",
+      "status": "usable",
+      "enabled": true,
+      "kind": "full_frame",
+      "canvas": [
+        512,
+        768
+      ],
+      "ground_pivot": [
+        256,
+        744
+      ],
+      "frames": [
+        "usable/actions/fun_hug_whale_plush/frames/0001.png",
+        "usable/actions/fun_hug_whale_plush/frames/0002.png",
+        "usable/actions/fun_hug_whale_plush/frames/0003.png",
+        "usable/actions/fun_hug_whale_plush/frames/0004.png",
+        "usable/actions/fun_hug_whale_plush/frames/0005.png",
+        "usable/actions/fun_hug_whale_plush/frames/0006.png",
+        "usable/actions/fun_hug_whale_plush/frames/0007.png",
+        "usable/actions/fun_hug_whale_plush/frames/0008.png",
+        "usable/actions/fun_hug_whale_plush/frames/0009.png",
+        "usable/actions/fun_hug_whale_plush/frames/0010.png",
+        "usable/actions/fun_hug_whale_plush/frames/0011.png",
+        "usable/actions/fun_hug_whale_plush/frames/0012.png"
+      ],
+      "duration_ms": [
+        180,
+        180,
+        180,
+        220,
+        260,
+        300,
+        300,
+        220,
+        180,
+        180,
+        260,
+        340
+      ],
+      "loop": false,
+      "trigger": "random_performance",
+      "exit_state": "idle"
+    },
+    {
+      "id": "fun_meal_break",
+      "name_zh": "吃饭休息",
+      "description": "拿出食物、进食并满足收尾，适合整点休息提醒。",
+      "status": "usable",
+      "enabled": true,
+      "kind": "full_frame",
+      "canvas": [
+        512,
+        768
+      ],
+      "ground_pivot": [
+        256,
+        744
+      ],
+      "frames": [
+        "usable/actions/fun_meal_break/frames/0001.png",
+        "usable/actions/fun_meal_break/frames/0002.png",
+        "usable/actions/fun_meal_break/frames/0003.png",
+        "usable/actions/fun_meal_break/frames/0004.png",
+        "usable/actions/fun_meal_break/frames/0005.png",
+        "usable/actions/fun_meal_break/frames/0006.png",
+        "usable/actions/fun_meal_break/frames/0007.png",
+        "usable/actions/fun_meal_break/frames/0008.png",
+        "usable/actions/fun_meal_break/frames/0009.png",
+        "usable/actions/fun_meal_break/frames/0010.png",
+        "usable/actions/fun_meal_break/frames/0011.png",
+        "usable/actions/fun_meal_break/frames/0012.png"
+      ],
+      "duration_ms": [
+        200,
+        220,
+        240,
+        260,
+        280,
+        300,
+        280,
+        240,
+        240,
+        220,
+        200,
+        260
+      ],
+      "loop": false,
+      "trigger": "random_performance",
+      "exit_state": "idle"
+    },
+    {
+      "id": "fun_poet_writer",
+      "name_zh": "写诗",
+      "description": "提笔构思并书写，适合创作或长文本生成。",
+      "status": "usable",
+      "enabled": true,
+      "kind": "full_frame",
+      "canvas": [
+        512,
+        768
+      ],
+      "ground_pivot": [
+        256,
+        744
+      ],
+      "frames": [
+        "usable/actions/fun_poet_writer/frames/0001.png",
+        "usable/actions/fun_poet_writer/frames/0002.png",
+        "usable/actions/fun_poet_writer/frames/0003.png",
+        "usable/actions/fun_poet_writer/frames/0004.png",
+        "usable/actions/fun_poet_writer/frames/0005.png",
+        "usable/actions/fun_poet_writer/frames/0006.png",
+        "usable/actions/fun_poet_writer/frames/0007.png",
+        "usable/actions/fun_poet_writer/frames/0008.png",
+        "usable/actions/fun_poet_writer/frames/0009.png",
+        "usable/actions/fun_poet_writer/frames/0010.png",
+        "usable/actions/fun_poet_writer/frames/0011.png",
+        "usable/actions/fun_poet_writer/frames/0012.png"
+      ],
+      "duration_ms": [
+        220,
+        240,
+        260,
+        280,
+        300,
+        300,
+        280,
+        260,
+        240,
+        240,
+        220,
+        280
+      ],
+      "loop": false,
+      "trigger": "random_performance",
+      "exit_state": "idle"
+    },
+    {
+      "id": "fun_proud_smug",
+      "name_zh": "得意叉腰",
+      "description": "叉腰抬头露出得意表情，适合任务成功。",
+      "status": "usable",
+      "enabled": true,
+      "kind": "full_frame",
+      "canvas": [
+        512,
+        768
+      ],
+      "ground_pivot": [
+        256,
+        744
+      ],
+      "frames": [
+        "usable/actions/fun_proud_smug/frames/0001.png",
+        "usable/actions/fun_proud_smug/frames/0002.png",
+        "usable/actions/fun_proud_smug/frames/0003.png",
+        "usable/actions/fun_proud_smug/frames/0004.png",
+        "usable/actions/fun_proud_smug/frames/0005.png",
+        "usable/actions/fun_proud_smug/frames/0006.png",
+        "usable/actions/fun_proud_smug/frames/0007.png",
+        "usable/actions/fun_proud_smug/frames/0008.png",
+        "usable/actions/fun_proud_smug/frames/0009.png",
+        "usable/actions/fun_proud_smug/frames/0010.png",
+        "usable/actions/fun_proud_smug/frames/0011.png",
+        "usable/actions/fun_proud_smug/frames/0012.png"
+      ],
+      "duration_ms": [
+        180,
+        180,
+        180,
+        220,
+        260,
+        220,
+        260,
+        220,
+        220,
+        200,
+        240,
+        320
+      ],
+      "loop": false,
+      "trigger": "random_performance",
+      "exit_state": "idle"
+    },
+    {
+      "id": "fun_reading_drowse",
+      "name_zh": "看书犯困",
+      "description": "翻看书本后逐渐犯困，适合长时间无操作。",
+      "status": "usable",
+      "enabled": true,
+      "kind": "full_frame",
+      "canvas": [
+        512,
+        768
+      ],
+      "ground_pivot": [
+        256,
+        744
+      ],
+      "frames": [
+        "usable/actions/fun_reading_drowse/frames/0001.png",
+        "usable/actions/fun_reading_drowse/frames/0002.png",
+        "usable/actions/fun_reading_drowse/frames/0003.png",
+        "usable/actions/fun_reading_drowse/frames/0004.png",
+        "usable/actions/fun_reading_drowse/frames/0005.png",
+        "usable/actions/fun_reading_drowse/frames/0006.png",
+        "usable/actions/fun_reading_drowse/frames/0007.png",
+        "usable/actions/fun_reading_drowse/frames/0008.png",
+        "usable/actions/fun_reading_drowse/frames/0009.png",
+        "usable/actions/fun_reading_drowse/frames/0010.png",
+        "usable/actions/fun_reading_drowse/frames/0011.png",
+        "usable/actions/fun_reading_drowse/frames/0012.png"
+      ],
+      "duration_ms": [
+        180,
+        160,
+        180,
+        220,
+        220,
+        240,
+        240,
+        320,
+        140,
+        180,
+        220,
+        320
+      ],
+      "loop": false,
+      "trigger": "random_performance",
+      "exit_state": "idle"
+    },
+    {
+      "id": "fun_rock_paper_scissors",
+      "name_zh": "猜拳",
+      "description": "蓄力、出拳并展示结果，可用于小游戏。",
+      "status": "usable",
+      "enabled": true,
+      "kind": "full_frame",
+      "canvas": [
+        512,
+        768
+      ],
+      "ground_pivot": [
+        256,
+        744
+      ],
+      "frames": [
+        "usable/actions/fun_rock_paper_scissors/frames/0001.png",
+        "usable/actions/fun_rock_paper_scissors/frames/0002.png",
+        "usable/actions/fun_rock_paper_scissors/frames/0003.png",
+        "usable/actions/fun_rock_paper_scissors/frames/0004.png",
+        "usable/actions/fun_rock_paper_scissors/frames/0005.png",
+        "usable/actions/fun_rock_paper_scissors/frames/0006.png",
+        "usable/actions/fun_rock_paper_scissors/frames/0007.png",
+        "usable/actions/fun_rock_paper_scissors/frames/0008.png",
+        "usable/actions/fun_rock_paper_scissors/frames/0009.png",
+        "usable/actions/fun_rock_paper_scissors/frames/0010.png",
+        "usable/actions/fun_rock_paper_scissors/frames/0011.png",
+        "usable/actions/fun_rock_paper_scissors/frames/0012.png"
+      ],
+      "duration_ms": [
+        180,
+        140,
+        120,
+        120,
+        120,
+        160,
+        320,
+        220,
+        180,
+        240,
+        260,
+        320
+      ],
+      "loop": false,
+      "trigger": "random_performance",
+      "exit_state": "idle"
+    },
+    {
+      "id": "fun_selfie_pose",
+      "name_zh": "自拍摆姿势",
+      "description": "举起设备寻找角度并定格自拍姿势。",
+      "status": "usable",
+      "enabled": true,
+      "kind": "full_frame",
+      "canvas": [
+        512,
+        768
+      ],
+      "ground_pivot": [
+        256,
+        744
+      ],
+      "frames": [
+        "usable/actions/fun_selfie_pose/frames/0001.png",
+        "usable/actions/fun_selfie_pose/frames/0002.png",
+        "usable/actions/fun_selfie_pose/frames/0003.png",
+        "usable/actions/fun_selfie_pose/frames/0004.png",
+        "usable/actions/fun_selfie_pose/frames/0005.png",
+        "usable/actions/fun_selfie_pose/frames/0006.png",
+        "usable/actions/fun_selfie_pose/frames/0007.png",
+        "usable/actions/fun_selfie_pose/frames/0008.png",
+        "usable/actions/fun_selfie_pose/frames/0009.png",
+        "usable/actions/fun_selfie_pose/frames/0010.png",
+        "usable/actions/fun_selfie_pose/frames/0011.png",
+        "usable/actions/fun_selfie_pose/frames/0012.png"
+      ],
+      "duration_ms": [
+        180,
+        160,
+        160,
+        180,
+        200,
+        260,
+        220,
+        260,
+        220,
+        260,
+        200,
+        320
+      ],
+      "loop": false,
+      "trigger": "random_performance",
+      "exit_state": "idle"
+    },
+    {
+      "id": "fun_shy_peek",
+      "name_zh": "害羞偷看",
+      "description": "遮住部分脸后从手边偷看，适合害羞回应。",
+      "status": "usable",
+      "enabled": true,
+      "kind": "full_frame",
+      "canvas": [
+        512,
+        768
+      ],
+      "ground_pivot": [
+        256,
+        744
+      ],
+      "frames": [
+        "usable/actions/fun_shy_peek/frames/0001.png",
+        "usable/actions/fun_shy_peek/frames/0002.png",
+        "usable/actions/fun_shy_peek/frames/0003.png",
+        "usable/actions/fun_shy_peek/frames/0004.png",
+        "usable/actions/fun_shy_peek/frames/0005.png",
+        "usable/actions/fun_shy_peek/frames/0006.png",
+        "usable/actions/fun_shy_peek/frames/0007.png",
+        "usable/actions/fun_shy_peek/frames/0008.png",
+        "usable/actions/fun_shy_peek/frames/0009.png",
+        "usable/actions/fun_shy_peek/frames/0010.png",
+        "usable/actions/fun_shy_peek/frames/0011.png",
+        "usable/actions/fun_shy_peek/frames/0012.png"
+      ],
+      "duration_ms": [
+        200,
+        220,
+        260,
+        300,
+        300,
+        280,
+        260,
+        240,
+        220,
+        200,
+        200,
+        240
+      ],
+      "loop": false,
+      "trigger": "random_performance",
+      "exit_state": "idle"
+    },
+    {
+      "id": "fun_sneeze",
+      "name_zh": "打喷嚏",
+      "description": "吸气、打喷嚏、短暂失衡后恢复。",
+      "status": "usable",
+      "enabled": true,
+      "kind": "full_frame",
+      "canvas": [
+        512,
+        768
+      ],
+      "ground_pivot": [
+        256,
+        744
+      ],
+      "frames": [
+        "usable/actions/fun_sneeze/frames/0001.png",
+        "usable/actions/fun_sneeze/frames/0002.png",
+        "usable/actions/fun_sneeze/frames/0003.png",
+        "usable/actions/fun_sneeze/frames/0004.png",
+        "usable/actions/fun_sneeze/frames/0005.png",
+        "usable/actions/fun_sneeze/frames/0006.png",
+        "usable/actions/fun_sneeze/frames/0007.png",
+        "usable/actions/fun_sneeze/frames/0008.png",
+        "usable/actions/fun_sneeze/frames/0009.png",
+        "usable/actions/fun_sneeze/frames/0010.png",
+        "usable/actions/fun_sneeze/frames/0011.png",
+        "usable/actions/fun_sneeze/frames/0012.png"
+      ],
+      "duration_ms": [
+        200,
+        220,
+        240,
+        260,
+        300,
+        320,
+        280,
+        260,
+        240,
+        220,
+        200,
+        260
+      ],
+      "loop": false,
+      "trigger": "random_performance",
+      "exit_state": "idle"
+    },
+    {
+      "id": "fun_think_overload",
+      "name_zh": "思考过载",
+      "description": "思考逐渐过载并短暂宕机，适合超时或复杂问题。",
+      "status": "usable",
+      "enabled": true,
+      "kind": "full_frame",
+      "canvas": [
+        512,
+        768
+      ],
+      "ground_pivot": [
+        256,
+        744
+      ],
+      "frames": [
+        "usable/actions/fun_think_overload/frames/0001.png",
+        "usable/actions/fun_think_overload/frames/0002.png",
+        "usable/actions/fun_think_overload/frames/0003.png",
+        "usable/actions/fun_think_overload/frames/0004.png",
+        "usable/actions/fun_think_overload/frames/0005.png",
+        "usable/actions/fun_think_overload/frames/0006.png",
+        "usable/actions/fun_think_overload/frames/0007.png",
+        "usable/actions/fun_think_overload/frames/0008.png",
+        "usable/actions/fun_think_overload/frames/0009.png",
+        "usable/actions/fun_think_overload/frames/0010.png",
+        "usable/actions/fun_think_overload/frames/0011.png",
+        "usable/actions/fun_think_overload/frames/0012.png"
+      ],
+      "duration_ms": [
+        200,
+        220,
+        240,
+        280,
+        300,
+        320,
+        300,
+        280,
+        260,
+        240,
+        220,
+        280
+      ],
+      "loop": false,
+      "trigger": "random_performance",
+      "exit_state": "idle"
+    },
+    {
+      "id": "fun_tidy_dress",
+      "name_zh": "整理衣裙",
+      "description": "低头整理裙摆与衣领后恢复站姿。",
+      "status": "usable",
+      "enabled": true,
+      "kind": "full_frame",
+      "canvas": [
+        512,
+        768
+      ],
+      "ground_pivot": [
+        256,
+        744
+      ],
+      "frames": [
+        "usable/actions/fun_tidy_dress/frames/0001.png",
+        "usable/actions/fun_tidy_dress/frames/0002.png",
+        "usable/actions/fun_tidy_dress/frames/0003.png",
+        "usable/actions/fun_tidy_dress/frames/0004.png",
+        "usable/actions/fun_tidy_dress/frames/0005.png",
+        "usable/actions/fun_tidy_dress/frames/0006.png",
+        "usable/actions/fun_tidy_dress/frames/0007.png",
+        "usable/actions/fun_tidy_dress/frames/0008.png",
+        "usable/actions/fun_tidy_dress/frames/0009.png",
+        "usable/actions/fun_tidy_dress/frames/0010.png",
+        "usable/actions/fun_tidy_dress/frames/0011.png",
+        "usable/actions/fun_tidy_dress/frames/0012.png"
+      ],
+      "duration_ms": [
+        180,
+        180,
+        180,
+        180,
+        200,
+        220,
+        180,
+        220,
+        180,
+        180,
+        240,
+        320
+      ],
+      "loop": false,
+      "trigger": "after_landing",
+      "exit_state": "idle"
+    },
+    {
+      "id": "fun_travel_planner",
+      "name_zh": "旅行规划",
+      "description": "查看地图、比划路线并做出决定。",
+      "status": "usable",
+      "enabled": true,
+      "kind": "full_frame",
+      "canvas": [
+        512,
+        768
+      ],
+      "ground_pivot": [
+        256,
+        744
+      ],
+      "frames": [
+        "usable/actions/fun_travel_planner/frames/0001.png",
+        "usable/actions/fun_travel_planner/frames/0002.png",
+        "usable/actions/fun_travel_planner/frames/0003.png",
+        "usable/actions/fun_travel_planner/frames/0004.png",
+        "usable/actions/fun_travel_planner/frames/0005.png",
+        "usable/actions/fun_travel_planner/frames/0006.png",
+        "usable/actions/fun_travel_planner/frames/0007.png",
+        "usable/actions/fun_travel_planner/frames/0008.png",
+        "usable/actions/fun_travel_planner/frames/0009.png",
+        "usable/actions/fun_travel_planner/frames/0010.png",
+        "usable/actions/fun_travel_planner/frames/0011.png",
+        "usable/actions/fun_travel_planner/frames/0012.png"
+      ],
+      "duration_ms": [
+        220,
+        240,
+        240,
+        260,
+        260,
+        280,
+        280,
+        260,
+        240,
+        240,
+        220,
+        280
+      ],
+      "loop": false,
+      "trigger": "random_performance",
+      "exit_state": "idle"
+    },
+    {
+      "id": "land_recover_v4_12",
+      "name_zh": "落地恢复",
+      "description": "接住下落状态，压低缓冲、回弹并稳定恢复到待机。",
+      "status": "usable",
+      "enabled": true,
+      "kind": "full_frame",
+      "canvas": [
+        512,
+        768
+      ],
+      "ground_pivot": [
+        256,
+        744
+      ],
+      "frames": [
+        "usable/actions/land_recover_v4_12/frames/0001.png",
+        "usable/actions/land_recover_v4_12/frames/0002.png",
+        "usable/actions/land_recover_v4_12/frames/0003.png",
+        "usable/actions/land_recover_v4_12/frames/0004.png",
+        "usable/actions/land_recover_v4_12/frames/0005.png",
+        "usable/actions/land_recover_v4_12/frames/0006.png",
+        "usable/actions/land_recover_v4_12/frames/0007.png",
+        "usable/actions/land_recover_v4_12/frames/0008.png",
+        "usable/actions/land_recover_v4_12/frames/0009.png",
+        "usable/actions/land_recover_v4_12/frames/0010.png",
+        "usable/actions/land_recover_v4_12/frames/0011.png",
+        "usable/actions/land_recover_v4_12/frames/0012.png"
+      ],
+      "duration_ms": [
+        85,
+        75,
+        72,
+        72,
+        78,
+        85,
+        105,
+        82,
+        85,
+        90,
+        105,
+        180
+      ],
+      "loop": false,
+      "trigger": "ground_collision",
+      "exit_state": "idle",
+      "registration_scale": [
+        0.9167,
+        0.9167
+      ]
+    },
+    {
+      "id": "harness_task_thinking_v1_12",
+      "name_zh": "任务思考",
+      "description": "托腮、视线移动、眨眼和轻微低头，DSH 思考中循环表演。",
+      "status": "usable",
+      "enabled": true,
+      "kind": "full_frame",
+      "canvas": [
+        512,
+        768
+      ],
+      "ground_pivot": [
+        256,
+        744
+      ],
+      "frames": [
+        "usable/actions/harness_task_thinking_v1_12/frames/0001.png",
+        "usable/actions/harness_task_thinking_v1_12/frames/0002.png",
+        "usable/actions/harness_task_thinking_v1_12/frames/0003.png",
+        "usable/actions/harness_task_thinking_v1_12/frames/0004.png",
+        "usable/actions/harness_task_thinking_v1_12/frames/0005.png",
+        "usable/actions/harness_task_thinking_v1_12/frames/0006.png",
+        "usable/actions/harness_task_thinking_v1_12/frames/0007.png",
+        "usable/actions/harness_task_thinking_v1_12/frames/0008.png",
+        "usable/actions/harness_task_thinking_v1_12/frames/0009.png",
+        "usable/actions/harness_task_thinking_v1_12/frames/0010.png",
+        "usable/actions/harness_task_thinking_v1_12/frames/0011.png",
+        "usable/actions/harness_task_thinking_v1_12/frames/0012.png"
+      ],
+      "duration_ms": [
+        300,
+        300,
+        360,
+        390,
+        420,
+        450,
+        450,
+        420,
+        390,
+        360,
+        300,
+        450
+      ],
+      "loop": false,
+      "trigger": "dsh_activity",
+      "exit_state": "idle",
+      "registration_scale": [
+        0.875,
+        0.875
+      ]
+    },
+    {
+      "id": "harness_tool_working_v1_12",
+      "name_zh": "执行工具",
+      "description": "操作固定悬浮面板，包含点击、滑动、查看结果和眨眼，DSH 调用工具时表演。",
+      "status": "usable",
+      "enabled": true,
+      "kind": "full_frame",
+      "canvas": [
+        512,
+        768
+      ],
+      "ground_pivot": [
+        256,
+        744
+      ],
+      "frames": [
+        "usable/actions/harness_tool_working_v1_12/frames/0001.png",
+        "usable/actions/harness_tool_working_v1_12/frames/0002.png",
+        "usable/actions/harness_tool_working_v1_12/frames/0003.png",
+        "usable/actions/harness_tool_working_v1_12/frames/0004.png",
+        "usable/actions/harness_tool_working_v1_12/frames/0005.png",
+        "usable/actions/harness_tool_working_v1_12/frames/0006.png",
+        "usable/actions/harness_tool_working_v1_12/frames/0007.png",
+        "usable/actions/harness_tool_working_v1_12/frames/0008.png",
+        "usable/actions/harness_tool_working_v1_12/frames/0009.png",
+        "usable/actions/harness_tool_working_v1_12/frames/0010.png",
+        "usable/actions/harness_tool_working_v1_12/frames/0011.png",
+        "usable/actions/harness_tool_working_v1_12/frames/0012.png"
+      ],
+      "duration_ms": [
+        270,
+        300,
+        330,
+        390,
+        450,
+        420,
+        420,
+        360,
+        330,
+        300,
+        330,
+        480
+      ],
+      "loop": false,
+      "trigger": "dsh_activity",
+      "exit_state": "idle",
+      "registration_scale": [
+        0.875,
+        0.875
+      ]
+    }
+  ],
+  "live_rig": {
+    "status": "usable_foundation",
+    "model": "usable/live_rig/model.json",
+    "scope": [
+      "idle_breathe",
+      "blink",
+      "smile_face",
+      "speak_face",
+      "cursor_gaze_tracking",
+      "drag_hybrid_parameters"
+    ]
+  },
+  "drag_poses": {
+    "status": "hybrid_dense_force_point_registry",
+    "note": "v13 registers 11 directly drawn force points per direction. Smoothed speed advances at most one point per update; no bitmap is stretched or used as a timed drag GIF.",
+    "canvas": [
+      512,
+      768
+    ],
+    "sets": {
+      "drag_left_t00": {
+        "frames": [
+          "candidates/hybrid_drag/drag_left_dense_v13_11/frames/0001_t00.png"
+        ],
+        "duration_ms": [
+          34
+        ],
+        "loop": true
+      },
+      "drag_left_t01": {
+        "frames": [
+          "candidates/hybrid_drag/drag_left_dense_v13_11/frames/0002_t01.png"
+        ],
+        "duration_ms": [
+          34
+        ],
+        "loop": true
+      },
+      "drag_left_t02": {
+        "frames": [
+          "candidates/hybrid_drag/drag_left_dense_v13_11/frames/0003_t02.png"
+        ],
+        "duration_ms": [
+          34
+        ],
+        "loop": true
+      },
+      "drag_left_t03": {
+        "frames": [
+          "candidates/hybrid_drag/drag_left_dense_v13_11/frames/0004_t03.png"
+        ],
+        "duration_ms": [
+          34
+        ],
+        "loop": true
+      },
+      "drag_left_t04": {
+        "frames": [
+          "candidates/hybrid_drag/drag_left_dense_v13_11/frames/0005_t04.png"
+        ],
+        "duration_ms": [
+          34
+        ],
+        "loop": true
+      },
+      "drag_left_t05": {
+        "frames": [
+          "candidates/hybrid_drag/drag_left_dense_v13_11/frames/0006_t05.png"
+        ],
+        "duration_ms": [
+          34
+        ],
+        "loop": true
+      },
+      "drag_left_t06": {
+        "frames": [
+          "candidates/hybrid_drag/drag_left_dense_v13_11/frames/0007_t06.png"
+        ],
+        "duration_ms": [
+          34
+        ],
+        "loop": true
+      },
+      "drag_left_t07": {
+        "frames": [
+          "candidates/hybrid_drag/drag_left_dense_v13_11/frames/0008_t07.png"
+        ],
+        "duration_ms": [
+          34
+        ],
+        "loop": true
+      },
+      "drag_left_t08": {
+        "frames": [
+          "candidates/hybrid_drag/drag_left_dense_v13_11/frames/0009_t08.png"
+        ],
+        "duration_ms": [
+          34
+        ],
+        "loop": true
+      },
+      "drag_left_t09": {
+        "frames": [
+          "candidates/hybrid_drag/drag_left_dense_v13_11/frames/0010_t09.png"
+        ],
+        "duration_ms": [
+          34
+        ],
+        "loop": true
+      },
+      "drag_left_t10": {
+        "frames": [
+          "candidates/hybrid_drag/drag_left_dense_v13_11/frames/0011_t10.png"
+        ],
+        "duration_ms": [
+          34
+        ],
+        "loop": true
+      },
+      "drag_right_t00": {
+        "frames": [
+          "candidates/hybrid_drag/drag_right_dense_v13_11/frames/0001_t00.png"
+        ],
+        "duration_ms": [
+          34
+        ],
+        "loop": true
+      },
+      "drag_right_t01": {
+        "frames": [
+          "candidates/hybrid_drag/drag_right_dense_v13_11/frames/0002_t01.png"
+        ],
+        "duration_ms": [
+          34
+        ],
+        "loop": true
+      },
+      "drag_right_t02": {
+        "frames": [
+          "candidates/hybrid_drag/drag_right_dense_v13_11/frames/0003_t02.png"
+        ],
+        "duration_ms": [
+          34
+        ],
+        "loop": true
+      },
+      "drag_right_t03": {
+        "frames": [
+          "candidates/hybrid_drag/drag_right_dense_v13_11/frames/0004_t03.png"
+        ],
+        "duration_ms": [
+          34
+        ],
+        "loop": true
+      },
+      "drag_right_t04": {
+        "frames": [
+          "candidates/hybrid_drag/drag_right_dense_v13_11/frames/0005_t04.png"
+        ],
+        "duration_ms": [
+          34
+        ],
+        "loop": true
+      },
+      "drag_right_t05": {
+        "frames": [
+          "candidates/hybrid_drag/drag_right_dense_v13_11/frames/0006_t05.png"
+        ],
+        "duration_ms": [
+          34
+        ],
+        "loop": true
+      },
+      "drag_right_t06": {
+        "frames": [
+          "candidates/hybrid_drag/drag_right_dense_v13_11/frames/0007_t06.png"
+        ],
+        "duration_ms": [
+          34
+        ],
+        "loop": true
+      },
+      "drag_right_t07": {
+        "frames": [
+          "candidates/hybrid_drag/drag_right_dense_v13_11/frames/0008_t07.png"
+        ],
+        "duration_ms": [
+          34
+        ],
+        "loop": true
+      },
+      "drag_right_t08": {
+        "frames": [
+          "candidates/hybrid_drag/drag_right_dense_v13_11/frames/0009_t08.png"
+        ],
+        "duration_ms": [
+          34
+        ],
+        "loop": true
+      },
+      "drag_right_t09": {
+        "frames": [
+          "candidates/hybrid_drag/drag_right_dense_v13_11/frames/0010_t09.png"
+        ],
+        "duration_ms": [
+          34
+        ],
+        "loop": true
+      },
+      "drag_right_t10": {
+        "frames": [
+          "candidates/hybrid_drag/drag_right_dense_v13_11/frames/0011_t10.png"
+        ],
+        "duration_ms": [
+          34
+        ],
+        "loop": true
+      }
+    }
+  },
+  "candidate_count": 89,
+  "candidates_index": "candidates/index.json"
+}

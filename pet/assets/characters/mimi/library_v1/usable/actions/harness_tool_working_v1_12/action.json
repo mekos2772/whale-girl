@@ -1,0 +1,51 @@
+{
+  "id": "harness_tool_working_v1_12",
+  "name_zh": "执行工具",
+  "description": "操作固定悬浮面板，包含点击、滑动、查看结果和眨眼，DSH 调用工具时表演。",
+  "status": "usable",
+  "enabled": true,
+  "kind": "full_frame",
+  "canvas": [
+    512,
+    768
+  ],
+  "ground_pivot": [
+    256,
+    744
+  ],
+  "frames": [
+    "usable/actions/harness_tool_working_v1_12/frames/0001.png",
+    "usable/actions/harness_tool_working_v1_12/frames/0002.png",
+    "usable/actions/harness_tool_working_v1_12/frames/0003.png",
+    "usable/actions/harness_tool_working_v1_12/frames/0004.png",
+    "usable/actions/harness_tool_working_v1_12/frames/0005.png",
+    "usable/actions/harness_tool_working_v1_12/frames/0006.png",
+    "usable/actions/harness_tool_working_v1_12/frames/0007.png",
+    "usable/actions/harness_tool_working_v1_12/frames/0008.png",
+    "usable/actions/harness_tool_working_v1_12/frames/0009.png",
+    "usable/actions/harness_tool_working_v1_12/frames/0010.png",
+    "usable/actions/harness_tool_working_v1_12/frames/0011.png",
+    "usable/actions/harness_tool_working_v1_12/frames/0012.png"
+  ],
+  "duration_ms": [
+    270,
+    300,
+    330,
+    390,
+    450,
+    420,
+    420,
+    360,
+    330,
+    300,
+    330,
+    480
+  ],
+  "loop": false,
+  "trigger": "dsh_activity",
+  "exit_state": "idle",
+  "registration_scale": [
+    0.875,
+    0.875
+  ]
+}

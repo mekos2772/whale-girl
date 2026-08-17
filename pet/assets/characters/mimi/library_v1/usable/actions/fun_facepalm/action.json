@@ -1,0 +1,47 @@
+{
+  "id": "fun_facepalm",
+  "name_zh": "捂脸无语",
+  "description": "抬手捂脸并轻叹，适合失败、无语或错误提示。",
+  "status": "usable",
+  "enabled": true,
+  "kind": "full_frame",
+  "canvas": [
+    512,
+    768
+  ],
+  "ground_pivot": [
+    256,
+    744
+  ],
+  "frames": [
+    "usable/actions/fun_facepalm/frames/0001.png",
+    "usable/actions/fun_facepalm/frames/0002.png",
+    "usable/actions/fun_facepalm/frames/0003.png",
+    "usable/actions/fun_facepalm/frames/0004.png",
+    "usable/actions/fun_facepalm/frames/0005.png",
+    "usable/actions/fun_facepalm/frames/0006.png",
+    "usable/actions/fun_facepalm/frames/0007.png",
+    "usable/actions/fun_facepalm/frames/0008.png",
+    "usable/actions/fun_facepalm/frames/0009.png",
+    "usable/actions/fun_facepalm/frames/0010.png",
+    "usable/actions/fun_facepalm/frames/0011.png",
+    "usable/actions/fun_facepalm/frames/0012.png"
+  ],
+  "duration_ms": [
+    180,
+    180,
+    180,
+    180,
+    200,
+    260,
+    260,
+    300,
+    240,
+    260,
+    220,
+    340
+  ],
+  "loop": false,
+  "trigger": "random_performance",
+  "exit_state": "idle"
+}
