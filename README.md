@@ -3,7 +3,17 @@
 `mimi-desktop-pet`：DSH 启动时桌宠自动陪伴，实时显示思维链总结 / 工具调用 / 轮次进度，支持拖拽互动与无级缩放。
 
 - **npm**：https://www.npmjs.com/package/mimi-desktop-pet
-- **安装**：`dsh plugin --profile desktop add mimi-desktop-pet`
+
+## 安装
+
+```bash
+# 先确认你平时启动 DSH 用的 profile（dsh web 启动的就是 web profile）
+dsh plugin --profile web add mimi-desktop-pet     # 用 dsh web 启动 → 装 web
+dsh plugin --profile desktop add mimi-desktop-pet # 用 desktop profile 启动 → 装 desktop
+```
+
+装到**与你启动命令对应的 profile**，然后**重启 DSH**（Ctrl+C 后重新 `dsh web`）：
+桌宠随 DSH 自动出现，DSH 设置面板出现 `mimiPet` 命名空间（enabled / petDir / python / scale）。
 
 ## 功能
 
