@@ -1,0 +1,43 @@
+{
+  "name": "mimi-desktop-pet",
+  "version": "0.1.0",
+  "description": "鲸鱼娘 Mimi 桌宠：DeepSeek Harness 桌面宠物插件。DSH 启动时桌宠自动陪伴，实时显示思维链总结 / 工具调用 / 进度，支持拖拽互动与无级缩放。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": { "default": "./lib/index.js" },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "desktop-pet",
+    "桌宠",
+    "deepseek",
+    "cordis",
+    "plugin"
+  ],
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-settings": "^0.1.0-rc.6",
+    "@deepseek-ai/schemastery": "^3.18.1"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

@@ -1,0 +1,6 @@
+# mimi-desktop-pet 桌宠插件（npm 发布版）
+# DSH 通过 package.json 的 dsh.bundle.patch 自动应用本文件。
+# petDir/python 留空自动探测；可在 DSH 设置面板 mimiPet 命名空间配置。
+- insert:
+    - id: mimi-pet
+      name: 'mimi-desktop-pet'
