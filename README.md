@@ -15,6 +15,9 @@ dsh plugin --profile desktop add mimi-desktop-pet # 用 desktop profile 启动 �
 装到**与你启动命令对应的 profile**，然后**重启 DSH**（Ctrl+C 后重新 `dsh web`）：
 桌宠随 DSH 自动出现，DSH 设置面板出现 `mimiPet` 命名空间（enabled / petDir / python / scale）。
 
+> **v0.2.0 起自带完整桌宠本体与全部素材**（`pet/`，约 99MB）——安装即开箱即用，无需自备资源。
+> 若本机已有桌宠项目（`~/Desktop/桌宠`），插件会优先使用它（可在设置里自定义 `petDir`）。
+
 ## 功能
 
 - DSH 启动时自动拉起桌宠（Python/PySide6 渲染），DSH 退出时自动回收
