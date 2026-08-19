@@ -328,7 +328,7 @@ class DshAnimationTests(unittest.TestCase):
         integration._handle_event(self._chunk(1, 1, {"type": "text-delta", "text": "好的"}))
         self.assertIsNone(integration._dsh_anim)
 
-    def test_maintain_anim_replays_while_condition_holds(self) -> None:
+    def test_maintain_anim_replays_with_gap_while_condition_holds(self) -> None:
         engine, integration = self._make()
         integration._handle_event(self._chunk(1, 1, {"type": "block-start", "blockType": "reasoning"}))
         # Let the current performance run to completion.
@@ -338,6 +338,13 @@ class DshAnimationTests(unittest.TestCase):
             if engine.states.state is PetState.IDLE:
                 break
         self.assertIs(engine.states.state, PetState.IDLE)
+        # Throttled: an immediate replay is suppressed so the pet rests in its
+        # natural idle sway between work cycles.
+        integration.maintain_anim()
+        self.assertIs(engine.states.state, PetState.IDLE)
+        # Once the replay gap has passed the work animation replays (condition
+        # still holds: reasoning pending).
+        integration._anim_last_replay = time.perf_counter() - (integration.REPLAY_GAP_S + 1.0)
         integration.maintain_anim()
         self.assertIs(engine.states.state, PetState.PERFORMING)
         # Reasoning finished -> no replay.
@@ -346,6 +353,7 @@ class DshAnimationTests(unittest.TestCase):
             engine.tick(now, 0.02, (0.0, 0.0), None, None)
             if engine.states.state is PetState.IDLE:
                 break
+        integration._anim_last_replay = time.perf_counter() - (integration.REPLAY_GAP_S + 1.0)
         integration.maintain_anim()
         self.assertIs(engine.states.state, PetState.IDLE)
 

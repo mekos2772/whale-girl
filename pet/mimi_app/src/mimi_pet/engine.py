@@ -101,6 +101,11 @@ class PetEngine:
                 breath_amplitude=float(live_cfg.get("breath_amplitude", 0.65)),
                 gaze_smoothing=float(live_cfg.get("gaze_smoothing", 0.18)),
                 max_head_angle_deg=float(live_cfg.get("max_head_angle_deg", 4.0)),
+                idle_sway_period_s=float(live_cfg.get("idle_sway_period_s", 3.2)),
+                idle_sway_period2_s=float(live_cfg.get("idle_sway_period2_s", 7.7)),
+                idle_sway_amplitude_deg=float(live_cfg.get("idle_sway_amplitude_deg", 2.0)),
+                idle_bob_period_s=float(live_cfg.get("idle_bob_period_s", 4.4)),
+                idle_bob_amplitude=float(live_cfg.get("idle_bob_amplitude", 1.2)),
             )
         )
         self.drag = DragHybridController(
@@ -523,6 +528,7 @@ class PetEngine:
             dragging=state is PetState.DRAGGING,
             performing=state is PetState.PERFORMING,
             enabled=enabled,
+            dt_s=dt_s,
         )
         self._update_expression(now_s, state)
 

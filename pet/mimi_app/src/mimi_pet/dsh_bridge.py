@@ -36,6 +36,7 @@ class DshSession:
     steps: int = 0
     cwd: str = ""
     agent_preset: str = ""
+    title: str = ""
 
 
 @dataclass
@@ -89,7 +90,8 @@ class DshBridge:
         value = self.rpc("session.list", {}) or {}
         sessions = []
         for item in value.get("items", []):
-            stats = ((item.get("projections") or {}).get("values") or {}).get("sessionStats") or {}
+            values = (item.get("projections") or {}).get("values") or {}
+            stats = values.get("sessionStats") or {}
             sessions.append(
                 DshSession(
                     session_id=item["sessionId"],
@@ -98,6 +100,7 @@ class DshBridge:
                     steps=int(stats.get("steps", 0)),
                     cwd=item.get("cwd", ""),
                     agent_preset=item.get("agentPreset", ""),
+                    title=str(values.get("title") or ""),
                 )
             )
         return sessions

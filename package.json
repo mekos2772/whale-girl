@@ -1,11 +1,13 @@
 {
   "name": "mimi-desktop-pet",
-  "version": "0.1.0",
-  "description": "鲸鱼娘 Mimi 桌宠：DeepSeek Harness 桌面宠物插件。DSH 启动时桌宠自动陪伴，实时显示思维链总结 / 工具调用 / 进度，支持拖拽互动与无级缩放。",
+  "version": "0.3.0",
+  "description": "鲸鱼娘 Mimi 桌宠：DeepSeek Harness 桌面宠物插件。DSH 启动时桌宠自动陪伴，头顶活动胶囊实时显示当前任务摘要 / 工具调用 / 状态，点击展开快速输入，支持拖拽互动、无级缩放与多项目切换。",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
-    ".": { "default": "./lib/index.js" },
+    ".": {
+      "default": "./lib/index.js"
+    },
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },

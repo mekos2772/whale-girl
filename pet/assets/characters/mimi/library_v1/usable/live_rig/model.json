@@ -188,6 +188,7 @@
   "live_scope": {
     "available": [
       "idle_breathe",
+      "idle_head_sway",
       "independent_eye_tracking",
       "cursor_gaze_tracking",
       "blink",
@@ -195,7 +196,7 @@
       "smile_face",
       "drag_hybrid_controller"
     ],
-    "rule": "Ambient motion is parameter driven. Dragging is hybrid: direction/speed selects a reviewed full-frame pose set while root spring, tilt, hair/skirt lag and gaze remain continuous runtime parameters."
+    "rule": "Ambient motion is parameter driven. Idle combines breathing with a two-term organic head sway (folds into head_angle/head_y; fades in/out via LiveController; the back_hair counter-lag follows for free). Dragging is hybrid: direction/speed selects a reviewed full-frame pose set while root spring, tilt, hair/skirt lag and gaze remain continuous runtime parameters."
   },
   "preset_gif_scope": {
     "locomotion": [

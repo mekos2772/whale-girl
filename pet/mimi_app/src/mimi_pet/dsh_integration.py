@@ -12,17 +12,24 @@ Sink protocol (all optional, duck-typed):
     set_row(tag, role, text)
     upsert_progress(text)
     set_status(text)
+    set_activity(state)   # ActivityState for the head-top capsule
     append_question(question)
 """
 
 from __future__ import annotations
 
-import json
 import queue
 import threading
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 
+from .activity_text import (
+    getCompactActivityText,
+    getHarnessDisplayName,
+    tool_row_text,
+    tool_summary,
+)
 from .cot_summarizer import CoTSummarizer, local_summary
 from .dsh_bridge import DshBridge, DshError, DshEvent, DshEventThread
 from .engine import PetEngine
@@ -41,84 +48,57 @@ class DshQuestion:
     multi_select: bool = False
 
 
-# Official DSH tool-name -> row variant mapping (from dsh-client-ui-tool).
-TOOL_VARIANTS = {
-    "bash": "bash",
-    "pwsh": "bash",
-    "read": "read",
-    "web_fetch": "read",
-    "web_search": "search",
-    "grep": "search",
-    "glob": "search",
-    "write": "write",
-    "edit": "edit",
-    "run_code": "code",
-}
-VARIANT_TITLES = {
-    "search": "Search",
-    "read": "Read",
-    "bash": "Bash",
-    "write": "Write",
-    "edit": "Edit",
-    "code": "Code",
-    "others": "Tool call",
-}
-# Tool-owned titles override the variant title (same as the DSH web UI).
-TOOL_TITLES = {
-    "pwsh": "Pwsh",
-    "cordis_package_inspect": "Inspect",
-    "cordis_runtime_inspect": "Inspect",
-    "cordis_run": "Run Cordis Plugin",
-    "cordis_stop": "Stop Cordis Plugin",
-    "cordis_undefine": "Remove Cordis Plugin",
-}
+@dataclass(frozen=True)
+class ActivityState:
+    """What the head-top capsule shows — display-layer only, never sent back.
+
+    Field meanings
+    --------------
+    harness_display_name  short badge ("DSH"/"Codex"/"Claude"), "" -> hidden
+    status                stable key: connected/thinking/executing/tool/
+                          waiting/done/fail/disconnected
+    status_zh             human label for the tooltip ("思考中")
+    summary               the compressed 动作 + 对象 line for the capsule
+    full_activity         full un-shortened text for the hover tooltip
+    is_connected          whether the DSH event/tcp link is alive
+    is_waiting_for_user   a pending question/approval (stronger click affordance)
+    """
+
+    harness_display_name: str
+    status: str
+    status_zh: str
+    summary: str
+    full_activity: str
+    is_connected: bool = False
+    is_waiting_for_user: bool = False
 
 
-def _tool_row_text(tool: str, arguments: str = "") -> str:
-    """DSH-style tool row: 'Pwsh · main.py' (official titles, minimal detail)."""
-    variant = TOOL_VARIANTS.get(tool, "others")
-    title = TOOL_TITLES.get(tool) or VARIANT_TITLES.get(variant, "Tool call")
-    try:
-        args = json.loads(arguments) if isinstance(arguments, str) and arguments else {}
-    except ValueError:
-        args = {}
-    detail = ""
-    if isinstance(args, dict):
-        if args.get("file_path"):
-            # Show only the file name — clean and short.
-            from pathlib import Path as _Path
-            detail = _Path(str(args["file_path"])).name
-        elif args.get("command"):
-            # Show the last command segment (the actual action), not the setup.
-            import re as _re
-            parts = _re.split(r"[;&|]{1,2}", str(args["command"]))
-            last = parts[-1].strip() if parts else ""
-            detail = last[:18]
-        elif args.get("pattern"):
-            detail = str(args["pattern"])[:16]
-        elif args.get("query"):
-            detail = str(args["query"])[:16]
-        elif args.get("path"):
-            from pathlib import Path as _Path
-            detail = _Path(str(args["path"])).name
-        elif args.get("script"):
-            detail = str(args["script"])[:16]
-    if not detail:
-        return title
-    return f"{title} · {detail}"
+# Keep the old private name working where it was referenced externally.
+_tool_row_text = tool_row_text  # noqa: N816 (legacy alias)
 
 
 class DshIntegration:
     """Owns the bridge + event thread and maps DSH state onto the pet + panel."""
 
     POLL_INTERVAL_S = 2.0
+    REPLAY_GAP_S = 10.0  # min seconds between DSH work-animation replays
 
     def __init__(self, engine: PetEngine, host: str = "127.0.0.1:3080") -> None:
         self.engine = engine
         self.bridge = DshBridge(host=host)
         self.event_queue: queue.Queue[DshEvent] = queue.Queue()
-        self.thread = DshEventThread(host=host, events=self.event_queue)
         self.connected = False
+        self._capsule_revealed = False
+        # IMPORTANT: the event-thread callbacks run on the websocket thread.
+        # They must never touch Qt/widgets directly (that deadlocks the GUI
+        # main loop) — they only post a marker event that the main-thread
+        # drain (QTimer) turns into a UI update.
+        self.thread = DshEventThread(
+            host=host,
+            events=self.event_queue,
+            on_connect=lambda: self._queue_link(True),
+            on_disconnect=lambda: self._queue_link(False),
+        )
         self.working = False
         self.last_error: str | None = None
         self.pending_questions: list[DshQuestion] = []
@@ -129,8 +109,11 @@ class DshIntegration:
         self._recent_done_at = 0.0
 
         # DSH-driven animation state: None | "thinking" | "tool".
+        # Replays are throttled so the pet breathes/sways between work cycles
+        # instead of staying frozen inside a looping work animation forever.
         self._dsh_anim: str | None = None
         self._tool_active = False
+        self._anim_last_replay = 0.0
 
         # Async polling: HTTP happens on a worker thread so the Qt main
         # thread never blocks (a stalled DSH request must not freeze the pet).
@@ -155,6 +138,29 @@ class DshIntegration:
 
         # Chain-of-thought summarizer (worker thread delivers via event queue).
         self.cot = CoTSummarizer()
+
+        # Head-top activity capsule state (display layer; see ActivityState).
+        self._harness_raw = ""
+        self._title = ""
+        self._tool_name = ""
+        self._tool_args = ""
+        self._tool_full = ""
+        self._summary_text = ""  # latest CoT summary (compressed for the capsule)
+        self._waiting_text = ""
+        self._done_until_s = 0.0
+        # Multi-project support: DSH can advance several sessions at once.
+        # _pinned_session lets the user choose WHICH project the capsule
+        # tracks (and which session messages go to); None = follow the first
+        # running session automatically.
+        self._known_sessions: list = []
+        self._pinned_session: str | None = None
+        self.activity = ActivityState(
+            harness_display_name="",
+            status="disconnected",
+            status_zh="未连接",
+            summary="未连接…",
+            full_activity="",
+        )
 
     # ------------------------------------------------------------------ lifecycle
 
@@ -186,12 +192,87 @@ class DshIntegration:
     def _note_activity(self) -> None:
         self.last_activity_at = time.time()
 
+    def _queue_link(self, connected: bool) -> None:
+        """Called from the websocket thread: hand off link state to the main
+        thread via the shared event queue (drained by a QTimer)."""
+        self.event_queue.put(
+            DshEvent(method="__link", rpc_id="", payload={"connected": connected})
+        )
+
+    # ------------------------------------------------------------ activity capsule
+
+    def _pick_tool_state(self) -> tuple[str, str]:
+        """(tool_capsule_summary, tool_full_row) for the running tool, if any."""
+        if not self._tool_active:
+            return "", ""
+        row = tool_row_text(self._tool_name, self._tool_args)
+        return tool_summary(self._tool_name, self._tool_args), row
+
+    def _build_activity(self) -> ActivityState:
+        connected = bool(self.connected)
+        harness = getHarnessDisplayName(self._harness_raw) or ("DSH" if connected else "")
+        waiting = bool(self._waiting_text)
+        tool = self._tool_active
+
+        if self.last_error and not connected:
+            summary, full = "连接失败…", f"无法连接 DSH：{self.last_error[:80]}"
+            return ActivityState(harness, "fail", "连接失败", summary, full, False, False)
+        if not connected and not self._active_session:
+            summary, full = "未连接…", "尚未连接 DeepSeek Harness"
+            return ActivityState(harness, "disconnected", "已断开", summary, full, False, False)
+        if waiting:
+            text = self._waiting_text
+            return ActivityState(
+                harness, "waiting", "等待输入",
+                getCompactActivityText(text) or "等待你确认…", text, True, True,
+            )
+        if tool:
+            summary, full = self._pick_tool_state()
+            return ActivityState(harness, "tool", "调用工具", summary, full, True, False)
+        if self._reasoning_pending:
+            # Current task summary takes priority while reasoning; fall back.
+            source = self._summary_text or self._title
+            if source:
+                return ActivityState(
+                    harness, "thinking", "思考中",
+                    getCompactActivityText(source), source, True, False,
+                )
+            return ActivityState(harness, "thinking", "思考中", "思考中…", "思考中…", True, False)
+        if self.working:
+            source = self._title
+            if source:
+                return ActivityState(
+                    harness, "executing", "执行中",
+                    getCompactActivityText(source), source, True, False,
+                )
+            return ActivityState(harness, "executing", "执行中", "执行中…", "DSH 会话运行中", True, False)
+        # Connected and idle: show the last-known session goal if we remember one.
+        now = time.perf_counter()
+        if now < self._done_until_s:
+            return ActivityState(harness, "done", "已完成", "已完成…", "任务完成", True, False)
+        title = self._title
+        if title:
+            return ActivityState(
+                harness, "connected", "已连接",
+                getCompactActivityText(title), title, True, False,
+            )
+        return ActivityState(harness, "connected", "已连接", "DSH 已连接", "已连接 DeepSeek Harness", True, False)
+
+    def _emit_activity(self) -> None:
+        """Push the current ActivityState to the panel sink (content only)."""
+        self.activity = self._build_activity()
+        self._sink("set_activity", self.activity)
+
     def request_show_panel(self) -> None:
-        """Explicitly show the message bar (context menu item)."""
+        """Explicitly show the message bar (context menu item).
+
+        Order matters: on_activity first shows the head-top capsule, then
+        show_panel expands it to the full list (panel stays the final state).
+        """
         self._note_activity()
-        self._sink("show_panel")
         if self.on_activity is not None:
             self.on_activity()
+        self._sink("show_panel")
 
     # ------------------------------------------------------------------ polling (QTimer)
 
@@ -228,20 +309,39 @@ class DshIntegration:
                 self._apply_sessions(value)
             else:
                 self.last_error = str(value)
+                self._emit_activity()
 
     def _apply_sessions(self, sessions: list) -> None:
-        running = [s for s in sessions if s.running]
-        if running:
-            session = running[0]
-            self._active_session = session.session_id
-            self.working = True
-            if not self._was_running:
-                self._note_activity()
-                self._sink("set_status", "工作中…")
-                if self.on_activity is not None:
-                    self.on_activity()
-            self._on_work(session)
-            self._was_running = True
+        self._known_sessions = list(sessions)
+        target = None
+        # User-pinned project wins, otherwise the first running session.
+        if self._pinned_session is not None:
+            for session in sessions:
+                if session.session_id == self._pinned_session:
+                    target = session
+                    break
+        if target is None:
+            for session in sessions:
+                if session.running:
+                    target = session
+                    break
+        if target is not None:
+            sid = target.session_id
+            was_active = self._active_session == sid
+            self._active_session = sid
+            self._harness_raw = getattr(target, "agent_preset", "") or ""
+            if getattr(target, "title", ""):
+                self._title = target.title
+            running = bool(target.running)
+            if running:
+                if not was_active:
+                    self._note_activity()
+                    self._sink("set_status", "工作中…")
+                    if self.on_activity is not None:
+                        self.on_activity()
+                self._on_work(target)
+            self.working = running
+            self._was_running = running
         else:
             if self._was_running and self._active_session is not None:
                 self._on_done()
@@ -251,6 +351,37 @@ class DshIntegration:
             self._was_running = False
             self._active_session = None
             self._sink("set_status", "空闲")
+        self._emit_activity()
+
+    # ------------------------------------------------------------ project picker
+
+    def session_choices(self) -> list[dict]:
+        """(session_id, label, running) for every known DSH session."""
+        out = []
+        for s in self._known_sessions:
+            name = Path(s.cwd).name if s.cwd else s.session_id[-8:]
+            title = (s.title or "").strip()
+            label = f"{name} · {title[:16]}" if title else name
+            out.append(
+                {
+                    "session_id": s.session_id,
+                    "label": label,
+                    "running": bool(s.running),
+                    "title": title[:16],
+                }
+            )
+        return out
+
+    def pinned_session(self) -> str | None:
+        return self._pinned_session
+
+    def select_session(self, session_id: str) -> None:
+        """Pin the project the capsule tracks; "" (empty) = auto-follow."""
+        self._pinned_session = session_id or None
+        # Re-evaluate against the last-known session list immediately.
+        self._apply_sessions(list(self._known_sessions))
+        if self.on_activity is not None:
+            self.on_activity()
 
     def drain_events(self) -> None:
         while True:
@@ -267,19 +398,29 @@ class DshIntegration:
         if anim == self._dsh_anim:
             return
         self._dsh_anim = anim
+        self._anim_last_replay = time.perf_counter()
         if anim == "thinking":
             self.engine.force_perform("harness_task_thinking_v1_12")
         elif anim == "tool":
             self.engine.force_perform("harness_tool_working_v1_12")
 
     def maintain_anim(self) -> None:
-        """Called every frame: re-loop the current DSH animation while its
-        condition still holds, so the pet keeps acting while DSH works."""
+        """Re-loop the current DSH work animation, but throttled.
+
+        Replaying on every idle frame would freeze the pet inside the moving
+        action forever; a fresh replay only happens after a gap so the pet
+        returns to its natural standing sway between work cycles.
+        """
         if self.engine.states.state is not PetState.IDLE:
             return
+        now = time.perf_counter()
+        if now - self._anim_last_replay < self.REPLAY_GAP_S:
+            return
         if self._dsh_anim == "thinking" and self._reasoning_pending:
+            self._anim_last_replay = now
             self.engine.perform("harness_task_thinking_v1_12")
         elif self._dsh_anim == "tool" and self._tool_active:
+            self._anim_last_replay = now
             self.engine.perform("harness_tool_working_v1_12")
 
     # ------------------------------------------------------------------ event handling
@@ -287,7 +428,15 @@ class DshIntegration:
     def _handle_event(self, event: DshEvent) -> None:
         method = event.method
         payload = event.payload
-        if method == "session/jobs":
+        if method == "__link":
+            # Processed on the main thread (drained by QTimer) — safe to touch
+            # Qt here. First successful link reveals the head-top capsule.
+            self.connected = bool(payload.get("connected"))
+            if self.connected and not self._capsule_revealed:
+                self._capsule_revealed = True
+                if self.on_activity is not None:
+                    self.on_activity()
+        elif method == "session/jobs":
             self._handle_jobs(payload)
         elif method == "question/requested":
             self._handle_question(event.rpc_id, payload)
@@ -301,15 +450,18 @@ class DshIntegration:
             text = payload.get("text", "")
             if tag and text:
                 self._sink("set_row", tag, "summary", text)
+                self._summary_text = text
         elif method == "approval/requested":
             tool = payload.get("toolName", "")
             reason = payload.get("reason") or ""
             text = f"等待批准：{tool}"
             if reason:
                 text += f"（{reason}）"
+            self._waiting_text = text
             self._sink("append_message", "info", text)
             self._note_activity()
             self._bubble(text, duration=4.0)
+        self._emit_activity()
 
     def _handle_jobs(self, payload: dict) -> None:
         # Running jobs are already surfaced as tool rows (工具：pwsh), so we
@@ -338,12 +490,19 @@ class DshIntegration:
             self._finish_text()
             self._submit_reasoning()
             tool = data.get("name", "")
-            self._sink("set_row", "tool_active", "tool", _tool_row_text(tool, str(data.get("arguments", ""))))
+            self._tool_name = tool
+            self._tool_args = str(data.get("arguments", ""))
+            row = _tool_row_text(tool, self._tool_args)
+            self._tool_full = row
+            self._sink("set_row", "tool_active", "tool", row)
             self._tool_active = True
             self._set_anim("tool")
             self._note_activity()
         elif event_type == "tool/result":
             self._tool_active = False
+            self._tool_name = ""
+            self._tool_args = ""
+            self._tool_full = ""
             self._set_anim(None)
             if data.get("error"):
                 error = data["error"]
@@ -365,6 +524,7 @@ class DshIntegration:
             text = f"等待批准：{tool}"
             if reason:
                 text += f"（{reason}）"
+            self._waiting_text = text
             self._set_anim(None)
             self._sink("append_message", "info", text)
             self._note_activity()
@@ -391,6 +551,7 @@ class DshIntegration:
             elif block_type == "reasoning":
                 self._reasoning = ""
                 self._reasoning_pending = True
+                self._summary_text = ""  # previous block's summary is stale now
                 self._reasoning_tag = f"reason_{turn}_{step}"
                 self._sink("set_row", self._reasoning_tag, "progress", "思考中…")
                 self._set_anim("thinking")
@@ -479,10 +640,15 @@ class DshIntegration:
             self._sink("append_question", question)
             self._note_activity()
         if self.pending_questions:
-            self._bubble(f"问你：{self.pending_questions[0].question}", duration=5.0)
+            first = self.pending_questions[0]
+            self._waiting_text = first.header or first.question or "等待你确认…"
+            self._bubble(f"问你：{first.question}", duration=5.0)
 
     def _clear_questions(self, rpc_id: str) -> None:
         self.pending_questions = [q for q in self.pending_questions if q.rpc_id != rpc_id]
+        if not self.pending_questions:
+            self._waiting_text = ""
+        self._emit_activity()
 
     # ------------------------------------------------------------------ CoT config
 
@@ -506,14 +672,17 @@ class DshIntegration:
         if steps != self._last_steps:
             self._last_steps = steps
             self._sink("set_status", f"工作中 · 第 {steps} 步")
-        # Fallback: DSH is working but no reasoning events arrived yet.
-        if self._dsh_anim is None:
-            self._set_anim("thinking")
+        # No forced animation here: a merely-"running" session with no live
+        # reasoning/tool events must not spin the pet. The thinking loop is
+        # started by real reasoning blocks (see _handle_chunk) and replayed
+        # with a gap in maintain_anim.
+        self._note_activity()
 
     def _on_done(self) -> None:
         self._last_steps = 0
         self._tool_active = False
         self._set_anim(None)
+        self._done_until_s = time.perf_counter() + 5.0
         now = time.perf_counter()
         if now - self._recent_done_at < 10.0:
             return

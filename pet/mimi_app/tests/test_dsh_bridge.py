@@ -157,6 +157,103 @@ class FakeSink:
         self.shown += 1
 
 
+def fake_session(sid, running=False, title="", cwd="C:/proj") -> object:
+    return type(
+        "S",
+        (),
+        {
+            "session_id": sid,
+            "running": running,
+            "agent_preset": "standard",
+            "title": title,
+            "cwd": cwd,
+            "steps": 3,
+        },
+    )()
+
+
+class ProjectSelectionTests(unittest.TestCase):
+    """Multi-project support: pin which DSH session the capsule tracks."""
+
+    def test_autofollow_picks_first_running_session(self) -> None:
+        integration = DshIntegration(make_engine())
+        integration._apply_sessions(
+            [fake_session("s-a", running=True, title="任务A"),
+             fake_session("s-b", running=True, title="任务B")]
+        )
+        self.assertEqual(integration._active_session, "s-a")
+        self.assertIn("任务A", integration.activity.full_activity)
+
+    def test_pinned_session_wins_over_first_running(self) -> None:
+        integration = DshIntegration(make_engine())
+        integration.select_session("s-b")
+        self.assertEqual(integration.pinned_session(), "s-b")
+        integration._apply_sessions(
+            [fake_session("s-a", running=True, title="任务A"),
+             fake_session("s-b", running=True, title="任务B")]
+        )
+        self.assertEqual(integration._active_session, "s-b")
+        self.assertIn("任务B", integration.activity.full_activity)
+        # A pinned non-running project is still displayed (chosen project).
+        integration._apply_sessions(
+            [fake_session("s-a", running=True, title="任务A"),
+             fake_session("s-b", running=False, title="任务B")]
+        )
+        self.assertEqual(integration._active_session, "s-b")
+        self.assertFalse(integration.working)
+
+    def test_unpin_returns_to_autofollow(self) -> None:
+        integration = DshIntegration(make_engine())
+        integration.select_session("s-b")
+        integration.select_session("")
+        self.assertIsNone(integration.pinned_session())
+        integration._apply_sessions(
+            [fake_session("s-a", running=True, title="任务A"),
+             fake_session("s-b", running=True, title="任务B")]
+        )
+        self.assertEqual(integration._active_session, "s-a")
+
+    def test_session_choices_labels_project_and_title(self) -> None:
+        integration = DshIntegration(make_engine())
+        integration._known_sessions = [
+            fake_session("s-1", running=True, title="构建桌宠", cwd="C:/p/桌宠")
+        ]
+        choices = integration.session_choices()
+        self.assertEqual(choices[0]["session_id"], "s-1")
+        self.assertIn("桌宠", choices[0]["label"])
+        self.assertTrue(choices[0]["running"])
+
+
+class LinkHandoffTests(unittest.TestCase):
+    """The websocket thread must never touch Qt: link state is handed off via
+    the event queue and applied on the main thread ('__link' event)."""
+
+    def test_queue_link_only_posts_marker_event(self) -> None:
+        engine = make_engine()
+        integration = DshIntegration(engine)
+        integration._queue_link(True)
+        event = integration.event_queue.get_nowait()
+        self.assertEqual(event.method, "__link")
+        self.assertTrue(event.payload["connected"])
+        self.assertTrue(integration.event_queue.empty())
+
+    def test_link_event_applied_on_main_thread(self) -> None:
+        engine = make_engine()
+        integration = DshIntegration(engine)
+        revealed: list[bool] = []
+        integration.on_activity = lambda: revealed.append(True)
+        integration._handle_event(
+            DshEvent(method="__link", rpc_id="", payload={"connected": True})
+        )
+        self.assertTrue(integration.connected)
+        self.assertTrue(integration._capsule_revealed)
+        self.assertEqual(revealed, [True])
+        integration._handle_event(
+            DshEvent(method="__link", rpc_id="", payload={"connected": False})
+        )
+        self.assertFalse(integration.connected)
+
+
 class StreamingSinkTests(unittest.TestCase):
     def test_text_delta_streams_into_tagged_row(self) -> None:
         engine = make_engine()

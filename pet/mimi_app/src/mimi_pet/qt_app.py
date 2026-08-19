@@ -90,6 +90,13 @@ def run() -> int:
     integration.sink = panel
     panel.send_requested.connect(integration.prompt_active)
     panel.answer_requested.connect(integration.answer_question)
+    # Multi-project: the capsule "项目" picker lists every DSH session and
+    # lets the user pin which project is displayed / messaged.
+    panel.set_project_provider(
+        integration.session_choices,
+        integration.select_session,
+        integration.pinned_session,
+    )
 
     def pet_head_y() -> float:
         """Character's actual head position (height ~220 display px, scaled)."""
