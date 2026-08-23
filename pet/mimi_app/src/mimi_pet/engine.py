@@ -9,33 +9,45 @@ from __future__ import annotations
 
 import math
 import random
-import time
 from dataclasses import dataclass
 from pathlib import Path
 
 from .action_library import ActionLibrary
 from .collision import WorkArea, clamp_to_bounds, step_fall
 from .config import load_config
+from .debug_log import dbg
 from .drag_controller import DragConfig, DragHybridController, DragOutput
 from .frame_player import FramePlayer, FrameSample
 from .live_controller import LiveConfig, LiveController, LiveParameters
 from .scheduler import PerformanceScheduler
 from .state_machine import Event, PetState, PetStateMachine
 
+
+def touch_region(x_ratio: float, y_ratio: float) -> str:
+    """Body-part hit zone for the v5 standing master.
+
+    Measured from master_action_style_v1.png's alpha envelope: the character
+    occupies y 0.40-1.00 of the window, hands/sleeves flare to x < 0.28 /
+    x >= 0.72 around y 0.62-0.88, feet occupy y >= 0.88.
+    """
+    if y_ratio < 0.52:
+        return "head"
+    if y_ratio < 0.62:
+        return "face" if 0.30 <= x_ratio < 0.70 else "head"
+    if y_ratio >= 0.88:
+        return "foot"
+    if x_ratio < 0.28 or x_ratio >= 0.72:
+        return "hand"
+    return "belly"
+
 # Full-frame actions whose faces are explicitly drawn (closed eyes, face
 # covering, drinking, eating, sneezing...). Live whole-face switching must
 # never overwrite them.
 EXPRESSION_LOCKED_ACTIONS = frozenset(
     {
-        "fun_hot_tea",
-        "fun_meal_break",
         "fun_facepalm",
-        "fun_shy_peek",
-        "fun_sneeze",
-        "fun_hug_whale_plush",
-        "fun_reading_drowse",
-        "fun_cyber_fortune",
-        "fun_proud_smug",
+        "feed_bread",
+        "feed_refuse",
     }
 )
 
@@ -43,25 +55,9 @@ BLINK_DURATION_S = 0.14
 
 # Ambience pool for the random trigger: everything else has a scenario or
 # AI-event trigger and must not fire randomly.
-AMBIENCE_ACTIONS = frozenset(
-    {
-        "fun_sneeze",
-        "fun_shy_peek",
-        "fun_cyber_fortune",
-        "fun_travel_planner",
-        "fun_selfie_pose",
-    }
-)
+AMBIENCE_ACTIONS: frozenset[str] = frozenset()
 
-# Fortune-teller bubble lines (mostly good, always "for fun").
-FORTUNE_TEXTS = (
-    "今日运势：大吉！",
-    "好运正在向你靠近～",
-    "今日宜微笑，忌熬夜～",
-    "幸运色是蓝色，仅供娱乐哦",
-    "诸事顺遂！仅供娱乐～",
-    "前方有小惊喜，仅供娱乐哦",
-)
+MOVEMENT_ACTIONS = frozenset({"walk_left", "walk_right"})
 
 
 @dataclass(frozen=True)
@@ -129,18 +125,35 @@ class PetEngine:
             cooldown_s=float(scheduler_cfg.get("performance_cooldown_s", 45.0)),
             probability=float(scheduler_cfg.get("random_performance_probability", 0.08)),
         )
-        self._after_landing_tidy_probability = float(
-            scheduler_cfg.get("after_landing_tidy_probability", 0.35)
-        )
         scenario = config.get("scenario", {})
         self.scenario_cfg = scenario
         self._last_input_s = 0.0
-        self._last_fortune_day: str | None = None
         physics = config.get("physics", {})
         self.gravity = float(physics.get("gravity_px_s2", 2000.0))
         self.air_drag = float(physics.get("air_drag_per_s", 0.8))
         self.max_fall_speed = float(physics.get("max_fall_speed_px_s", 2800.0))
         self.grounded_epsilon = float(physics.get("grounded_epsilon_px", 1.0))
+        self.hard_landing_speed = float(
+            physics.get("hard_landing_speed_px_s", 1800.0)
+        )
+        movement = config.get("movement", {})
+        self.walk_speed = float(movement.get("walk_speed_px_s", 92.0))
+        self.slow_walk_speed = float(movement.get("slow_walk_speed_px_s", 48.0))
+        self.autonomous_walk_probability = float(
+            movement.get("autonomous_walk_probability_per_check", 0.06)
+        )
+        self.autonomous_walk_idle_min_s = float(
+            movement.get("autonomous_walk_idle_min_s", 15.0)
+        )
+        walk_duration = movement.get("autonomous_walk_duration_s", [4.0, 9.0])
+        self.autonomous_walk_duration = (float(walk_duration[0]), float(walk_duration[1]))
+        feeding = config.get("feeding", {})
+        self.satiety = float(feeding.get("initial_satiety", 0.45))
+        self.bread_satiety_gain = float(feeding.get("bread_satiety_gain", 0.4))
+        self.feed_refuse_threshold = float(feeding.get("refuse_threshold", 0.82))
+        self.satiety_decay_per_s = float(
+            feeding.get("satiety_decay_per_hour", 0.08)
+        ) / 3600.0
         self.display_w = int(config["window"]["width"])
         self.display_h = int(config["window"]["height"])
         self.blink_interval_s = tuple(float(v) for v in config["live"].get("blink_interval_s", [2.8, 6.5]))
@@ -179,6 +192,27 @@ class PetEngine:
         self._click_react_until_s = 0.0
         self._click_fun_until_s = -1.0
         self._slung_release = False
+        self._movement_velocity_x = 0.0
+        self._movement_target_x: float | None = None
+        self._movement_until_s: float | None = None
+        self._waking = False
+        self._last_touch_s = -1e9
+        self._touch_streak = 0
+        self._touch_regions: list[tuple[float, str]] = []
+        self._last_satiety_tick_s: float | None = None
+        # Welcome-back greeting: the pointer returning after a long absence
+        # waves hello (engine clock is monotonic perf_counter seconds).
+        interaction = config.get("interaction", {})
+        self.welcome_back_after_s = float(interaction.get("welcome_back_after_s", 30.0))
+        self.welcome_cooldown_s = float(interaction.get("welcome_cooldown_s", 90.0))
+        self._welcome_last_s = -1e9
+        # Idle rest ladder: sit after a quiet minute, sleep after a quiet
+        # five; direct interaction or DSH activity always interrupts.
+        self.sit_after_idle_s = float(interaction.get("sit_after_idle_s", 60.0))
+        self.sleep_after_idle_s = float(interaction.get("sleep_after_idle_s", 300.0))
+        # Touch combos: a head pat followed by a palm slap within this window
+        # celebrates together.
+        self.combo_window_s = float(interaction.get("combo_window_s", 3.0))
         # Placement mode: docked (default) falls back to the desk bottom;
         # free placement keeps the character where it was released.
         self.free_placement = False
@@ -199,6 +233,7 @@ class PetEngine:
         """Play an action from Idle only (scheduler path)."""
         if self.states.state is not PetState.IDLE:
             return False
+        self._clear_movement()
         self.states.dispatch(Event.PERFORM)
         self.player.play(self.library.get(action_id))
         return True
@@ -206,11 +241,219 @@ class PetEngine:
     def force_perform(self, action_id: str) -> bool:
         """Debug/menu path: start from Idle or replace the current performance."""
         state = self.states.state
-        if state in (PetState.DRAGGING, PetState.FALLING, PetState.LANDING, PetState.CLOSED):
+        if state in (
+            PetState.DRAGGING,
+            PetState.FALLING,
+            PetState.LANDING,
+            PetState.SLEEPING,
+            PetState.CLOSED,
+        ):
             return False
+        self._clear_movement()
         if state is PetState.IDLE:
             self.states.dispatch(Event.PERFORM)
         self.player.play(self.library.get(action_id))
+        return True
+
+    def cancel_performance(self, allowed_ids: frozenset[str] | set[str] | None = None) -> bool:
+        """Return a matching full-frame performance to Idle immediately.
+
+        Integrations use this to stop their own stale status animation. They
+        must pass an allowlist so an external status update can never cancel
+        a direct user interaction.
+        """
+        if self.states.state is not PetState.PERFORMING or self.player.action is None:
+            return False
+        if allowed_ids is not None and self.player.action.id not in allowed_ids:
+            return False
+        self.player.stop()
+        self._clear_movement()
+        self.states.dispatch(Event.ACTION_FINISHED)
+        return True
+
+    def _clear_movement(self) -> None:
+        self._movement_velocity_x = 0.0
+        self._movement_target_x = None
+        self._movement_until_s = None
+
+    def start_walk(
+        self,
+        direction: str,
+        *,
+        slow: bool = False,
+        target_x: float | None = None,
+        duration_s: float | None = None,
+    ) -> bool:
+        """Start a grounded left/right walk driven by the root node.
+
+        The PNG sequence only supplies the gait. Screen displacement is kept
+        in one world-space root so authored frames can never drift or resize.
+        """
+        if direction not in ("left", "right") or self.states.state is not PetState.IDLE:
+            return False
+        action_id = f"walk_{direction}"
+        if not self.perform(action_id):
+            return False
+        speed = self.slow_walk_speed if slow else self.walk_speed
+        self._movement_velocity_x = -speed if direction == "left" else speed
+        self._movement_target_x = float(target_x) if target_x is not None else None
+        self._movement_until_s = (
+            self.now_s + max(0.0, float(duration_s)) if duration_s is not None else None
+        )
+        return True
+
+    def stop_walk(self) -> bool:
+        if (
+            self.states.state is not PetState.PERFORMING
+            or self.player.action is None
+            or self.player.action.id not in MOVEMENT_ACTIONS
+        ):
+            return False
+        self.player.stop()
+        self._clear_movement()
+        self.states.dispatch(Event.ACTION_FINISHED)
+        return True
+
+    def start_sit(self) -> bool:
+        return self.perform("sit_down")
+
+    def stand_up(self) -> bool:
+        if (
+            self.states.state is PetState.PERFORMING
+            and self.player.action is not None
+            and self.player.action.id in ("sit_down", "sit_idle")
+        ):
+            self.player.play(self.library.get("stand_up"))
+            return True
+        return False
+
+    def start_sleep(self) -> bool:
+        if self.states.state is not PetState.IDLE:
+            return False
+        self._clear_movement()
+        self.states.dispatch(Event.SLEEP)
+        self._waking = False
+        self.player.play(self.library.get("sleep_lie_down"))
+        return True
+
+    def wake_up(self) -> bool:
+        if self.states.state is not PetState.SLEEPING or self._waking:
+            return False
+        self._waking = True
+        self.player.play(self.library.get("wake_up"))
+        return True
+
+    def trigger_touch(self, region: str, x_ratio: float = 0.5) -> bool:
+        """Play the authored reaction for the clicked body region.
+
+        Regions: head / face / belly / hand / foot (see touch_region). A foot
+        click dodges away with a short walk; a hand click high-fives; head
+        pat → palm slap inside the combo window celebrates.
+        """
+        self.note_input(self.now_s)
+        self._click_react_until_s = self.now_s + 0.35
+        if self.states.state is PetState.SLEEPING:
+            return self.wake_up()
+        if self.now_s - self._last_touch_s <= 0.8:
+            self._touch_streak += 1
+        else:
+            self._touch_streak = 1
+        self._last_touch_s = self.now_s
+
+        self._touch_regions = [
+            entry for entry in self._touch_regions if self.now_s - entry[0] <= self.combo_window_s
+        ]
+        combo = region == "hand" and any(r == "head" for _, r in self._touch_regions)
+        self._touch_regions.append((self.now_s, region))
+
+        if region == "foot":
+            return self._foot_dodge(x_ratio)
+        if combo:
+            self._touch_regions.clear()
+            dbg("combo head->hand: celebrate")
+            self.set_happy(3.5)
+            self.set_external_bubble("最喜欢你了！", 3.0)
+            if self.states.state is PetState.IDLE:
+                return self.perform("celebrate")
+            return self.force_perform("celebrate")
+
+        action_id = {
+            "head": "head_pat",
+            "belly": "belly_ticklish",
+            "face": "cheek_poke",
+            "hand": "high_five",
+        }.get(region, "cheek_poke")
+        if self._touch_streak >= 3:
+            # Third rapid touch on the same spot: delighted escalation, even
+            # while the previous reaction is still playing.
+            self._touch_streak = 0
+            self._streak_escalation(region)
+        if self.is_sitting:
+            # Touches pop the pet out of its sit straight into the reaction.
+            self.cancel_performance()
+        if self.states.state is not PetState.IDLE:
+            return False
+        if self.perform(action_id):
+            # A friendly touch leaves the character smiling afterwards.
+            self.set_happy(1.6)
+            return True
+        return False
+
+    def _foot_dodge(self, x_ratio: float) -> bool:
+        """Foot tickle: hop a couple of steps away from the clicked side."""
+        if self.states.state is not PetState.IDLE:
+            return False
+        direction = "right" if x_ratio < 0.5 else "left"
+        dbg(f"foot dodge: {direction}")
+        self.set_external_bubble("别挠我脚啦～", 2.5)
+        return self.start_walk(direction, duration_s=random.uniform(1.6, 2.6))
+
+    def _streak_escalation(self, region: str) -> None:
+        texts = {
+            "head": "好舒服呀～",
+            "face": "脸都要被戳红啦～",
+            "belly": "哈哈哈别挠了！",
+            "hand": "击掌击掌！",
+        }
+        self.set_happy(4.0)
+        self.set_external_bubble(texts.get(region, "再来一次～"), 3.0)
+
+    def feed_bread(self) -> str | None:
+        """Feed Mimi once; the response depends on the persistent satiety."""
+        self.note_input(self.now_s)
+        if self.states.state is PetState.SLEEPING:
+            self.wake_up()
+            return None
+        if self.is_sitting:
+            # Drop the sit instantly so the treat performance can play.
+            self.cancel_performance()
+        if self.states.state is not PetState.IDLE:
+            return None
+        if self.satiety >= self.feed_refuse_threshold:
+            action_id = "feed_refuse"
+            self.set_external_bubble("吃不下啦～", 3.0)
+        else:
+            action_id = "feed_bread"
+            self.satiety = min(1.0, self.satiety + self.bread_satiety_gain)
+            self.set_external_bubble("谢谢！好吃～", 3.0)
+        if not self.perform(action_id):
+            return None
+        if action_id == "feed_bread":
+            # A accepted treat leaves the character smiling afterwards.
+            self.set_happy(3.0)
+        return action_id
+
+    def receive_drop(self) -> bool:
+        """React when a file or text is dropped onto the pet."""
+        self.note_input(self.now_s)
+        if self.states.state is PetState.SLEEPING:
+            self.wake_up()
+            return True
+        if self.is_sitting:
+            self.cancel_performance()
+        if not self.perform("file_drop_receive"):
+            return False
+        self.set_external_bubble("收到啦！", 3.0)
         return True
 
     def try_random_performance(self, now_s: float, random_value: float | None = None) -> bool:
@@ -234,8 +477,11 @@ class PetEngine:
     def begin_drag(self, mouse_x: float, mouse_y: float, timestamp_s: float) -> bool:
         if self.states.state is PetState.CLOSED:
             return False
+        self.note_input(timestamp_s)
         # Dragging always cancels any running full-frame performance.
         self.player.stop()
+        self._clear_movement()
+        self._waking = False
         self.drag_pose_player.stop()
         self._current_pose_set = None
         self._last_horizontal_direction = None
@@ -310,97 +556,101 @@ class PetEngine:
         return max(0.0, now_s - self._last_input_s)
 
     def scenario_check(self, now_s: float, random_value: float | None = None) -> bool:
-        """Pick a scenario-driven performance; returns True when one started.
+        """Idle rest ladder: walk → sit → sleep (config-driven thresholds).
 
-        Every action gets a sensible trigger: meal windows, idle durations,
-        night hours, low-probability ambience, once-a-day fortune. The rest
-        (AI-event actions) are reserved for the future AI system and are only
-        playable from the developer menu.
+        Sitting persists until interrupted; a long enough sit escalates to
+        sleep. Waking/standing is interaction-driven, never scenario-driven.
         """
-        if self.states.state is not PetState.IDLE:
+        state = self.states.state
+        if state is PetState.SLEEPING:
             return False
-        value = random.random() if random_value is None else random_value
-        cfg = self.scenario_cfg
-        idle_min = self.idle_seconds(now_s) / 60.0
-        hour = int(time.localtime(now_s).tm_hour)
-
-        def in_window(hours: list) -> bool:
-            for start, end in hours:
-                if start <= hour < end:
-                    return True
+        if state is PetState.PERFORMING:
+            action_id = self.player.action.id if self.player.action else ""
+            if action_id not in ("sit_down", "sit_idle"):
+                return False  # busy with a real performance; scenarios wait
+            if self.idle_seconds(now_s) >= self.sleep_after_idle_s:
+                dbg("scenario: sit escalates to sleep")
+                return self._sleep_from_sit()
             return False
-
-        meal_windows = []
-        for item in cfg.get("meal_windows", []):
-            if isinstance(item, (list, tuple)) and len(item) == 2:
-                meal_windows.append(
-                    (int(str(item[0]).split(":")[0]), int(str(item[1]).split(":")[0]))
-                )
-        meal_ok = any(start <= hour < end for start, end in meal_windows)
-        if meal_ok and value < float(cfg.get("meal_probability", 0.3)):
-            return self.perform("fun_meal_break")
-
-        night_ok = False
-        night_hours = cfg.get("night_drowse_hours", [22, 6])
-        if len(night_hours) == 2 and night_hours[0] >= night_hours[1]:
-            night_ok = hour >= night_hours[0] or hour < night_hours[1]
-        if night_ok or idle_min >= float(cfg.get("idle_drowse_min", 30)):
-            if value < 0.5:
-                return self.perform("fun_reading_drowse")
-        if idle_min >= float(cfg.get("idle_hot_tea_min", 15)):
-            if value < 0.4:
-                return self.perform("fun_hot_tea")
-        if idle_min >= float(cfg.get("idle_hug_min", 20)):
-            if value < 0.5:
-                return self.perform("fun_hug_whale_plush")
-
-        # Once-a-day fortune (with its speech bubble).
-        if cfg.get("fortune_once_per_day", True):
-            today = time.strftime("%Y-%m-%d", time.localtime(now_s))
-            if self._last_fortune_day != today and value < 0.2:
-                self._last_fortune_day = today
-                return self.perform("fun_cyber_fortune")
-
-        # Low-probability ambience.
-        if value < float(cfg.get("sneeze_probability_per_check", 0.03)):
-            return self.perform("fun_sneeze")
-        if value < float(cfg.get("shy_peek_probability_per_check", 0.02)):
-            return self.perform("fun_shy_peek")
-        if value < float(cfg.get("travel_probability_per_check", 0.02)):
-            return self.perform("fun_travel_planner")
-        if value < float(cfg.get("selfie_probability_per_check", 0.02)):
-            return self.perform("fun_selfie_pose")
-        return False
-
-    def trigger_click_react(self, random_value: float | None = None) -> None:
-        """Short click: soft press-and-rebound squash, plus an occasional
-        quick fun reaction (shy peek / sneeze / rock-paper-scissors)."""
-        self._click_react_until_s = self.now_s + 0.35
+        if state is not PetState.IDLE:
+            return False
+        idle = self.idle_seconds(now_s)
+        if idle >= self.sleep_after_idle_s:
+            dbg("scenario: idle falls asleep")
+            return self.start_sleep()
+        if idle >= self.sit_after_idle_s:
+            dbg("scenario: idle sits down")
+            return self.start_sit()
         value = random.random() if random_value is None else random_value
         if (
-            self.states.state is PetState.IDLE
-            and self.now_s > self._click_fun_until_s
-            and value < 0.15
+            idle >= self.autonomous_walk_idle_min_s
+            and value < self.autonomous_walk_probability
         ):
-            # Stable small reactions only (fun_sneeze drifts 29px in its source
-            # frames, so it stays out of the click pool).
-            choice = random.choice(("fun_shy_peek", "fun_rock_paper_scissors", "fun_cyber_fortune"))
-            if self.perform(choice):
-                self._click_fun_until_s = self.now_s + 10.0
+            direction = random.choice(("left", "right"))
+            duration = random.uniform(*self.autonomous_walk_duration)
+            return self.start_walk(direction, duration_s=duration)
+        return False
 
-    def trigger_double_click(self) -> None:
-        """Double click: a bigger random reaction (proud / hug / facepalm / tidy)."""
-        if self.states.state is not PetState.IDLE:
-            return
-        choice = random.choice(
-            ("fun_proud_smug", "fun_hug_whale_plush", "fun_facepalm", "fun_tidy_dress")
+    @property
+    def is_sitting(self) -> bool:
+        """Sitting = the sit_down/sit_idle performance holds the body."""
+        return self.states.state is PetState.PERFORMING and self.player.action is not None and (
+            self.player.action.id in ("sit_down", "sit_idle")
         )
-        self.force_perform(choice)
 
-    def trigger_hover_reaction(self) -> None:
-        """Hover reaction: the pet notices being watched (shy peek)."""
-        if self.states.state is PetState.IDLE:
-            self.perform("fun_shy_peek")
+    def _sleep_from_sit(self) -> bool:
+        if not self.is_sitting:
+            return False
+        self.player.stop()
+        self.states.dispatch(Event.ACTION_FINISHED)
+        return self.start_sleep()
+
+    def interrupt_rest(self) -> None:
+        """Direct interaction or DSH activity ends rest: wake or stand."""
+        if self.states.state is PetState.SLEEPING:
+            self.wake_up()
+        elif self.is_sitting:
+            self.stand_up()
+
+    def trigger_click_react(self, random_value: float | None = None) -> None:
+        """Short click: soft press-and-rebound squash."""
+        self._click_react_until_s = self.now_s + 0.35
+
+    def trigger_double_click(self) -> bool:
+        """Double click: a clear, repeatable high-five interaction.
+
+        While resting, the first double click spends itself standing up (or
+        waking); the next one high-fives.
+        """
+        if self.states.state not in (PetState.IDLE, PetState.PERFORMING):
+            return False
+        if self.states.state is PetState.SLEEPING:
+            return self.wake_up()
+        if self.is_sitting:
+            return self.stand_up()
+        if self.force_perform("high_five"):
+            self.set_happy(2.5)
+            return True
+        return False
+
+    def trigger_welcome_back(self, away_s: float) -> bool:
+        """The pointer returns after a long absence: wave hello.
+
+        ``away_s`` is measured by the window between leave and enter. The
+        engine applies the absence threshold and its own cooldown so a busy
+        pointer crossing the pet never spams greetings.
+        """
+        self.note_input(self.now_s)
+        if self.states.state is not PetState.IDLE:
+            return False
+        if away_s < self.welcome_back_after_s:
+            return False
+        if self.now_s - self._welcome_last_s < self.welcome_cooldown_s:
+            return False
+        self._welcome_last_s = self.now_s
+        self.set_happy(2.5)
+        self.set_external_bubble("你回来啦～", 3.0)
+        return self.perform("wave")
 
     def set_display_size(self, width: int, height: int) -> None:
         """Resize the window uniformly (window-style scaling)."""
@@ -440,7 +690,7 @@ class PetEngine:
         self.player.play(self.library.get("land_recover_v4_12"))
         return "landing"
 
-    def collide_ground(self, ground_y: float) -> None:
+    def collide_ground(self, ground_y: float, impact_speed: float = 0.0) -> None:
         if self.states.state is not PetState.FALLING:
             return
         self.root_y = float(ground_y)
@@ -471,7 +721,13 @@ class PetEngine:
             return
         if self._happy_until_s and now_s >= self._happy_until_s:
             self._happy_until_s = 0.0
-        base = "talk" if self.talking else ("happy" if self._happy_until_s else "neutral")
+        # Speaking alternates the reviewed open-mouth plate with the exact
+        # neutral master. A held-open mouth reads as a frozen expression;
+        # ~6 flaps/s is clear at the 60 Hz render rate without flicker.
+        if self.talking:
+            base = "talk" if int(now_s * 12.0) % 2 == 0 else "neutral"
+        else:
+            base = "happy" if self._happy_until_s else "neutral"
         if now_s >= self._next_blink_s:
             self._blink_until_s = now_s + BLINK_DURATION_S
             low, high = self.blink_interval_s
@@ -490,10 +746,41 @@ class PetEngine:
     ) -> EngineFrame:
         dt_s = max(0.0, min(0.1, dt_s))
         self.now_s = now_s
+        if self._last_satiety_tick_s is None:
+            self._last_satiety_tick_s = now_s
+        else:
+            satiety_dt = max(0.0, min(60.0, now_s - self._last_satiety_tick_s))
+            self.satiety = max(0.0, self.satiety - satiety_dt * self.satiety_decay_per_s)
+            self._last_satiety_tick_s = now_s
         if cursor_screen is not None:
             self._cursor = (float(cursor_screen[0]), float(cursor_screen[1]))
 
+        if (
+            self.states.state is PetState.PERFORMING
+            and self.player.action is not None
+            and self.player.action.id in MOVEMENT_ACTIONS
+        ):
+            previous_x = self.root_x
+            self.root_x += self._movement_velocity_x * dt_s
+            reached_target = False
+            if self._movement_target_x is not None:
+                reached_target = (
+                    previous_x <= self._movement_target_x <= self.root_x
+                    or self.root_x <= self._movement_target_x <= previous_x
+                )
+                if reached_target:
+                    self.root_x = self._movement_target_x
+            if x_bounds is not None:
+                low, high = x_bounds
+                bounded_x = clamp_to_bounds(self.root_x, low, high)
+                reached_target = reached_target or bounded_x != self.root_x
+                self.root_x = bounded_x
+            timed_out = self._movement_until_s is not None and now_s >= self._movement_until_s
+            if reached_target or timed_out:
+                self.stop_walk()
+
         if self.states.state is PetState.FALLING:
+            impact_speed = min(self.max_fall_speed, self.vy + self.gravity * dt_s)
             step = step_fall(
                 self.root_x,
                 self.root_y,
@@ -507,7 +794,7 @@ class PetEngine:
             )
             self.root_x, self.root_y, self.vx, self.vy = step.root_x, step.root_y, step.vx, step.vy
             if step.hit:
-                self.collide_ground(ground_y)  # type: ignore[arg-type]
+                self.collide_ground(ground_y, impact_speed)  # type: ignore[arg-type]
             elif x_bounds is not None:
                 # Horizontal cage while falling: never fly off the desktop.
                 low, high = x_bounds
@@ -535,18 +822,28 @@ class PetEngine:
         sample = self.player.advance(dt_s * 1000.0)
         if sample is not None and sample.finished:
             finished_action = self.player.action.id if self.player.action else None
-            self.player.stop()
-            self.states.dispatch(Event.ACTION_FINISHED)
-            if (
-                finished_action == "land_recover_v4_12"
-                and self.states.state is PetState.IDLE
+            if finished_action == "sit_down":
+                self.player.play(self.library.get("sit_idle"))
+                sample = self.player.advance(0.0)
+            elif self.states.state is PetState.SLEEPING and finished_action in (
+                "sleep_lie_down",
             ):
-                if self._slung_release:
-                    # Flung hard -> flustered facepalm after landing.
+                self.player.play(self.library.get("sleep_loop"))
+                sample = self.player.advance(0.0)
+            elif self.states.state is PetState.SLEEPING and finished_action == "wake_up":
+                self.player.stop()
+                self._waking = False
+                self.states.dispatch(Event.WAKE)
+                sample = None
+            else:
+                self.player.stop()
+                self._clear_movement()
+                self.states.dispatch(Event.ACTION_FINISHED)
+                if (
+                    finished_action == "land_recover_v4_12"
+                    and self.states.state is PetState.IDLE
+                ):
                     self._slung_release = False
-                    self.force_perform("fun_facepalm")
-                elif random.random() < self._after_landing_tidy_probability:
-                    self.perform("fun_tidy_dress")
 
         # Fortune bubble while the cyber fortune performance plays.
         if (

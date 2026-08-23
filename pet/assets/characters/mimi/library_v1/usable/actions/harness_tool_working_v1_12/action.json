@@ -14,18 +14,18 @@
     744
   ],
   "frames": [
-    "usable/actions/harness_tool_working_v1_12/frames/0001.png",
-    "usable/actions/harness_tool_working_v1_12/frames/0002.png",
-    "usable/actions/harness_tool_working_v1_12/frames/0003.png",
-    "usable/actions/harness_tool_working_v1_12/frames/0004.png",
-    "usable/actions/harness_tool_working_v1_12/frames/0005.png",
-    "usable/actions/harness_tool_working_v1_12/frames/0006.png",
-    "usable/actions/harness_tool_working_v1_12/frames/0007.png",
-    "usable/actions/harness_tool_working_v1_12/frames/0008.png",
-    "usable/actions/harness_tool_working_v1_12/frames/0009.png",
-    "usable/actions/harness_tool_working_v1_12/frames/0010.png",
-    "usable/actions/harness_tool_working_v1_12/frames/0011.png",
-    "usable/actions/harness_tool_working_v1_12/frames/0012.png"
+    "usable/actions/harness_tool_working_v1_12/frames/0001.webp",
+    "usable/actions/harness_tool_working_v1_12/frames/0002.webp",
+    "usable/actions/harness_tool_working_v1_12/frames/0003.webp",
+    "usable/actions/harness_tool_working_v1_12/frames/0004.webp",
+    "usable/actions/harness_tool_working_v1_12/frames/0005.webp",
+    "usable/actions/harness_tool_working_v1_12/frames/0006.webp",
+    "usable/actions/harness_tool_working_v1_12/frames/0007.webp",
+    "usable/actions/harness_tool_working_v1_12/frames/0008.webp",
+    "usable/actions/harness_tool_working_v1_12/frames/0009.webp",
+    "usable/actions/harness_tool_working_v1_12/frames/0010.webp",
+    "usable/actions/harness_tool_working_v1_12/frames/0011.webp",
+    "usable/actions/harness_tool_working_v1_12/frames/0012.webp"
   ],
   "duration_ms": [
     270,
@@ -47,5 +47,6 @@
   "registration_scale": [
     0.875,
     0.875
-  ]
+  ],
+  "runtime_codec": "webp_q95_alpha"
 }

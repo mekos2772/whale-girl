@@ -9,8 +9,7 @@
   "scheduler": {
     "performance_cooldown_s": 45,
     "idle_check_interval_s": 8,
-    "random_performance_probability": 0.08,
-    "after_landing_tidy_probability": 0.35
+    "random_performance_probability": 0.08
   },
   "drag": {
     "velocity_smoothing": 0.28,
@@ -37,6 +36,8 @@
     ],
     "gaze_translation_scale": 0.35,
     "gaze_hair_counter_scale": 0.3,
+    "flat_gaze_shift": 0.2,
+    "flat_gaze_angle": 0.12,
     "idle_sway_period_s": 3.2,
     "idle_sway_period2_s": 7.7,
     "idle_sway_amplitude_deg": 3.0,
@@ -47,37 +48,37 @@
     "gravity_px_s2": 2000.0,
     "air_drag_per_s": 0.8,
     "max_fall_speed_px_s": 2800.0,
-    "grounded_epsilon_px": 1.0
+    "grounded_epsilon_px": 1.0,
+    "hard_landing_speed_px_s": 1800.0
+  },
+  "movement": {
+    "walk_speed_px_s": 92.0,
+    "slow_walk_speed_px_s": 48.0,
+    "autonomous_walk_probability_per_check": 0.06,
+    "autonomous_walk_idle_min_s": 15.0,
+    "autonomous_walk_duration_s": [
+      4.0,
+      9.0
+    ]
+  },
+  "feeding": {
+    "initial_satiety": 0.45,
+    "bread_satiety_gain": 0.4,
+    "refuse_threshold": 0.82,
+    "satiety_decay_per_hour": 0.08
+  },
+  "interaction": {
+    "welcome_back_after_s": 30,
+    "welcome_cooldown_s": 90,
+    "sit_after_idle_s": 60,
+    "sleep_after_idle_s": 300,
+    "combo_window_s": 3.0
   },
   "rig": {
-    "note": "Fixed registration of the composed rig (fit to master_v1, feet at master y=1282, centre x=512) onto the full-frame ground root (256,744) / master y=1488 and canvas centre. Computed once by tools/calibrate_rig_root.py; never recomputed per frame.",
-    "master_scale": 0.78777,
-    "master_offset_x": 108.661871,
-    "master_offset_y": 478.079137
+    "note": "Rig v5 is an exact 2x extraction of a 512x768 action frame, already sharing canvas centre and ground root; no extra registration transform.",
+    "master_scale": 1.0,
+    "master_offset_x": 0.0,
+    "master_offset_y": 0.0
   },
-  "scenario": {
-    "meal_windows": [
-      [
-        "11:00",
-        "13:00"
-      ],
-      [
-        "17:00",
-        "19:00"
-      ]
-    ],
-    "meal_probability": 0.3,
-    "idle_hot_tea_min": 15,
-    "idle_hug_min": 20,
-    "idle_drowse_min": 30,
-    "night_drowse_hours": [
-      22,
-      6
-    ],
-    "fortune_once_per_day": true,
-    "sneeze_probability_per_check": 0.03,
-    "shy_peek_probability_per_check": 0.02,
-    "travel_probability_per_check": 0.02,
-    "selfie_probability_per_check": 0.02
-  }
+  "scenario": {}
 }

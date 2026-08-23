@@ -1,0 +1,62 @@
+{
+  "id": "sit_idle",
+  "name_zh": "坐姿待机",
+  "description": "坐稳后的轻微动作循环。",
+  "status": "usable",
+  "enabled": true,
+  "kind": "full_frame",
+  "canvas": [
+    512,
+    768
+  ],
+  "ground_pivot": [
+    256,
+    744
+  ],
+  "frames": [
+    "usable/actions/sit_idle/frames/0001.webp",
+    "usable/actions/sit_idle/frames/0002.webp",
+    "usable/actions/sit_idle/frames/0003.webp",
+    "usable/actions/sit_idle/frames/0004.webp",
+    "usable/actions/sit_idle/frames/0005.webp",
+    "usable/actions/sit_idle/frames/0006.webp",
+    "usable/actions/sit_idle/frames/0007.webp",
+    "usable/actions/sit_idle/frames/0008.webp",
+    "usable/actions/sit_idle/frames/0009.webp",
+    "usable/actions/sit_idle/frames/0010.webp",
+    "usable/actions/sit_idle/frames/0011.webp",
+    "usable/actions/sit_idle/frames/0012.webp",
+    "usable/actions/sit_idle/frames/0013.webp",
+    "usable/actions/sit_idle/frames/0014.webp",
+    "usable/actions/sit_idle/frames/0015.webp",
+    "usable/actions/sit_idle/frames/0016.webp",
+    "usable/actions/sit_idle/frames/0017.webp",
+    "usable/actions/sit_idle/frames/0018.webp"
+  ],
+  "duration_ms": [
+    83,
+    83,
+    83,
+    83,
+    83,
+    83,
+    83,
+    83,
+    83,
+    83,
+    83,
+    83,
+    83,
+    83,
+    83,
+    83,
+    83,
+    83
+  ],
+  "loop": true,
+  "trigger": "state_loop",
+  "exit_state": "idle",
+  "source": "generated/h3_actions_v1/sit_idle_rebuild_v2/sit_idle_loop",
+  "registration_note": "uniform scale 0.691000; source ground median -> (256,744)",
+  "runtime_codec": "webp_q95_alpha"
+}

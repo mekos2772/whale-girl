@@ -14,18 +14,18 @@
     744
   ],
   "frames": [
-    "usable/actions/fun_facepalm/frames/0001.png",
-    "usable/actions/fun_facepalm/frames/0002.png",
-    "usable/actions/fun_facepalm/frames/0003.png",
-    "usable/actions/fun_facepalm/frames/0004.png",
-    "usable/actions/fun_facepalm/frames/0005.png",
-    "usable/actions/fun_facepalm/frames/0006.png",
-    "usable/actions/fun_facepalm/frames/0007.png",
-    "usable/actions/fun_facepalm/frames/0008.png",
-    "usable/actions/fun_facepalm/frames/0009.png",
-    "usable/actions/fun_facepalm/frames/0010.png",
-    "usable/actions/fun_facepalm/frames/0011.png",
-    "usable/actions/fun_facepalm/frames/0012.png"
+    "usable/actions/fun_facepalm/frames/0001.webp",
+    "usable/actions/fun_facepalm/frames/0002.webp",
+    "usable/actions/fun_facepalm/frames/0003.webp",
+    "usable/actions/fun_facepalm/frames/0004.webp",
+    "usable/actions/fun_facepalm/frames/0005.webp",
+    "usable/actions/fun_facepalm/frames/0006.webp",
+    "usable/actions/fun_facepalm/frames/0007.webp",
+    "usable/actions/fun_facepalm/frames/0008.webp",
+    "usable/actions/fun_facepalm/frames/0009.webp",
+    "usable/actions/fun_facepalm/frames/0010.webp",
+    "usable/actions/fun_facepalm/frames/0011.webp",
+    "usable/actions/fun_facepalm/frames/0012.webp"
   ],
   "duration_ms": [
     180,
@@ -42,6 +42,7 @@
     340
   ],
   "loop": false,
-  "trigger": "random_performance",
-  "exit_state": "idle"
+  "trigger": "ai_failure",
+  "exit_state": "idle",
+  "runtime_codec": "webp_q95_alpha"
 }

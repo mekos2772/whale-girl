@@ -12,6 +12,7 @@ Pure Python (urllib + websocket-client), no Qt import: unit-testable.
 from __future__ import annotations
 
 import json
+import os
 import queue
 import threading
 import time
@@ -19,9 +20,24 @@ import urllib.request
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from .debug_log import dbg  # noqa: F401 (re-exported for existing importers)
+
 DEFAULT_HOST = "127.0.0.1:3080"
 EVENTS_PATH = "/api/events.mux"
 RESPOND_PATH = "/api/respond"
+
+
+def _local_timezone() -> str:
+    """IANA timezone for prompt payloads; Windows-safe fallback UTC+8."""
+    try:
+        import tzlocal
+
+        name = tzlocal.get_localzone_name()
+        if name:
+            return name
+    except Exception:
+        pass
+    return "Asia/Shanghai"
 
 
 class DshError(RuntimeError):
@@ -55,6 +71,7 @@ class DshBridge:
         self.host = host
         self.timeout = timeout
         self._counter = 0
+        self.timezone = os.environ.get("MIMI_TZ") or _local_timezone()
 
     def _post(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
         request = urllib.request.Request(
@@ -106,7 +123,70 @@ class DshBridge:
         return sessions
 
     def prompt(self, session_id: str, text: str) -> Any:
-        return self.rpc("session.prompt", {"sessionId": session_id, "text": text})
+        # Wire schema (dsh-client-connection): mode is "queue" for a new
+        # turn (or "steer" mid-turn); content is an array of typed parts.
+        payload = {
+            "sessionId": session_id,
+            "mode": "queue",
+            "content": [{"type": "text", "text": text}],
+            "clientTimeZone": self.timezone,
+        }
+        return self.rpc("session.prompt", payload)
+
+    # ------------------------------------------------------- shadow-session RPCs
+    # Used by the pet-agent mode: the pet owns one archived session on the
+    # DSH host (invisible in the web UI) driven by the same model config.
+
+    def create_session(self) -> str:
+        """Create a fresh session; returns its sessionId."""
+        value = self.rpc("session.create", {}) or {}
+        # Response shape is defensive: probe-tested live, but stay robust.
+        if isinstance(value, str):
+            return value
+        for key in ("sessionId", "session_id", "id"):
+            if isinstance(value, dict) and value.get(key):
+                return str(value[key])
+        raise DshError("dsh session.create: no sessionId in response")
+
+    def archive_session(self, session_id: str) -> Any:
+        """Hide the session from every web UI view (presentation-only)."""
+        return self.rpc("workspace.archiveSession", {"sessionId": session_id})
+
+    def rename_session(self, session_id: str, title: str) -> Any:
+        return self.rpc("session.rename", {"sessionId": session_id, "title": title})
+
+    def cancel_session(self, session_id: str) -> Any:
+        return self.rpc("session.cancel", {"sessionId": session_id})
+
+    # ------------------------------------------------------- settings RPCs
+    # The permission preset of an EXISTING session cannot be changed over the
+    # HTTP RPC surface (the web UI runs /permission through a WS remote), but
+    # settings.mutate controls the DEFAULT preset applied to new sessions —
+    # so the pet flips the default, creates its session, and restores it.
+
+    def settings_permission_preset(self) -> tuple[str, int]:
+        """(default preset, revision) of the "permission" settings namespace."""
+        value = self.rpc("settings.describe", {}) or {}
+        for ns in value.get("namespaces", []):
+            if ns.get("ns") == "permission":
+                preset = (ns.get("value") or {}).get("defaultPreset") or "workspace-write"
+                return str(preset), int(ns.get("revision", 0))
+        return "workspace-write", 0
+
+    def settings_set_permission_preset(self, preset: str, expected_revision: int) -> int:
+        """Set the default preset; returns the namespace's new revision."""
+        value = self.rpc(
+            "settings.mutate",
+            {
+                "ns": "permission",
+                "ops": [{"op": "set", "path": ["defaultPreset"], "value": preset}],
+                "expectedRevision": expected_revision,
+            },
+        ) or {}
+        for ns in value.get("namespaces", []):
+            if ns.get("ns") == "permission":
+                return int(ns.get("revision", expected_revision + 1))
+        return expected_revision + 1
 
     def respond(self, rpc_id: str, session_id: str, answers: list[dict[str, Any]]) -> dict[str, Any]:
         """Answer a pending user question (client-response on /api/respond)."""
@@ -159,6 +239,12 @@ class DshEventThread:
         while not self._stop.is_set():
             try:
                 ws = websocket.create_connection(f"ws://{self.host}{EVENTS_PATH}", timeout=20)
+                # The 20 s timeout above is for the handshake only. recv()
+                # must block indefinitely: DSH stays quiet for minutes, and a
+                # recv timeout would kill an otherwise healthy link every
+                # 20 s, swallowing live events during the reconnect gap.
+                ws.settimeout(None)
+                dbg(f"ws connected {self.host}")
                 if self.on_connect is not None:
                     self.on_connect()
                 while not self._stop.is_set():
@@ -175,7 +261,8 @@ class DshEventThread:
                             payload=frame.get("payload") or {},
                         )
                     )
-            except Exception:
+            except Exception as exc:
+                dbg(f"ws error: {type(exc).__name__}: {exc}")
                 if self.on_disconnect is not None:
                     self.on_disconnect()
             if not self._stop.is_set():

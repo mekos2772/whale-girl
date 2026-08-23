@@ -1,56 +1,102 @@
-# 鲸鱼娘 Mimi — DeepSeek Harness 桌面宠物插件
+# 鲸鱼娘 Mimi — DeepSeek Harness 桌面宠物
 
-`mimi-desktop-pet`：DSH 启动时桌宠自动陪伴，实时显示思维链总结 / 工具调用 / 轮次进度，支持拖拽互动与无级缩放。
+`mimi-desktop-pet` 会在 DeepSeek Harness 启动时自动唤醒 Mimi。她不只是播放动画：会跟随 DSH 的思考、工具调用、提问、完成与失败状态做出动作，并把回复显示成头顶气泡；也可以切换到独立的「Mimi 管家」会话，直接从桌面输入中文任务。
 
-- **npm**：https://www.npmjs.com/package/mimi-desktop-pet
+- npm：<https://www.npmjs.com/package/mimi-desktop-pet>
+- GitHub：<https://github.com/mekos2772/whale-girl>
+- 当前版本：`0.4.0`
+- 已验证 DSH：`0.1.1-rc.2`（同时兼容现有 `0.1.0-rc.6` 协议面）
+
+[![Mimi Desktop Pet 0.4.0 宣传片](media/mimi-promo-0.4.0-poster.png)](media/mimi-promo-0.4.0.mp4)
+
+点击海报播放 34 秒宣传片。
 
 ## 安装
 
+先安装最新版 DSH 与 pnpm：
+
 ```bash
-# 先确认你平时启动 DSH 用的 profile（dsh web 启动的就是 web profile）
-dsh plugin --profile web add mimi-desktop-pet     # 用 dsh web 启动 → 装 web
-dsh plugin --profile desktop add mimi-desktop-pet # 用 desktop profile 启动 → 装 desktop
+npm install -g @deepseek-ai/dsh@0.1.1-rc.2
+npm install -g pnpm
 ```
 
-装到**与你启动命令对应的 profile**，然后**重启 DSH**（Ctrl+C 后重新 `dsh web`）：
-桌宠随 DSH 自动出现，DSH 设置面板出现 `mimiPet` 命名空间（enabled / petDir / python / scale）。
+再把 Mimi 装进实际使用的 profile：
 
-> **v0.3.0 起**：头顶「活动胶囊」优先显示当前**具体任务摘要**（如 `DSH · 构建 Windows 桌宠…`），超出自动换行不截断、显示更多；点击胶囊展开快速输入框（Enter 发送 / Shift+Enter 换行 / Esc 收起）；DSH 同时推进多个会话时，胶囊上的「项目」按钮可在项目间切换显示与发送目标。
-> **v0.2.0 起**自带完整桌宠本体与全部素材（`pet/`，约 99MB）——安装即开箱即用，无需自备资源。
-> 若本机已有桌宠项目（`~/Desktop/桌宠`），插件会优先使用它（可在设置里自定义 `petDir`）。
+```bash
+# dsh web 使用 web profile
+dsh plugin --profile web add mimi-desktop-pet@0.4.0
 
-## 功能
+# 若使用单独的 desktop profile
+dsh plugin --profile desktop add mimi-desktop-pet@0.4.0
+```
 
-- DSH 启动时自动拉起桌宠（Python/PySide6 渲染），DSH 退出时自动回收
-- 头顶活动胶囊：当前任务摘要（`调用 GitHub 搜索 → 检查 XX PR…` 语义压缩）/ 工具调用（`Pwsh`/`Edit`/`Search`… DSH 官方图标风格）/ 状态点（思考/执行/工具/等待已连接…）/ 悬停显示完整信息
-- 点击胶囊展开快速输入（复用同一条发送通道）；「☰」展开完整消息面板（可回答问题）
-- **多项目**：DSH 同时推进多个会话时，胶囊「项目」按钮选择显示/发送哪个项目
-- 待机摇头晃脑（呼吸 + 双频摆头 + 发丝跟随）；DSH 工作动画带重播节流，不会一直转圈
-- 交互：单击小表情 / 双击大反应 / 悬停害羞 / 甩出捂脸 / 滚轮无级缩放
+若 npm 镜像尚未同步，可直接从 GitHub 标签安装：
 
-## 配置（DSH 设置 → `mimiPet` 命名空间）
+```bash
+dsh plugin --profile web add github:mekos2772/whale-girl#v0.4.0
+```
+
+重启 DSH 后生效。DSH 会自动把声明了 `dsh.bundle.patch` 的包加入 profile；无需手工修改 `cordis.patch.yml`。
+
+> DSH 仍处于 developer preview，RC 版本可能发生不兼容变化。Mimi 0.4.0 已实测 `session.list`、`session.prompt`、`settings.*`、`/api/events.mux` 与插件生命周期。
+
+## 0.4.0 有什么
+
+- 23 套经过筛选的核心完整帧动作；移除 57 套旧库中重复、低密度或视觉不一致的动作。
+- Live Rig v5：呼吸、眨眼、微笑、张嘴、独立虹膜视线追踪，角色与正式动作使用同一母版。
+- DSH 联动：思考、工具执行、倾听、点头、庆祝、失败六类专用动作。
+- 头顶白色气泡：回复、摘要、提问与状态统一呈现，带去重和自动消散。
+- 白色中文输入框：支持 Windows 拼音 IME，输入期间冻结窗口跟随。
+- 两种 Harness 模式：跟随当前项目会话，或使用归档的独立「Mimi 管家」Agent。
+- 桌宠交互：五分区触摸、组合反应、拖拽/落地、拖放投喂、久坐久睡场景链、欢迎回来。
+- 单实例保护：手动启动与 DSH 自动启动不会生成两个 Mimi。
+- 发布包改用透明 WebP Q95 素材，在保留帧数和时长的前提下显著缩小体积。
+
+## 操作
+
+| 操作 | Mimi 的反应 |
+|---|---|
+| 摸头、戳脸、挠肚子、碰手或脚 | 按角色部位播放不同反应 |
+| 摸头后 3 秒内击掌 | 组合庆祝 |
+| 拖动角色 | 依据方向与速度实时倾斜，释放后落地恢复 |
+| 拖入图片 | 作为面包投喂；饱腹时会拒绝 |
+| 拖入文件或文本 | 接取文件并交给桌宠交互层 |
+| DSH 思考/调用工具/提问/完成 | 自动切换对应动作和气泡 |
+| 点击气泡或右键打开 Harness | 聚焦中文输入框，可直接发送任务 |
+
+## 配置
+
+DSH 设置中的命名空间为 `mimiPet`：
 
 | 字段 | 说明 |
 |---|---|
-| `enabled` | 是否随 DSH 启动桌宠（默认 true） |
-| `petDir` | 桌宠项目根目录（含 `mimi_app/src`）；留空自动探测 `~/Desktop/桌宠` 或环境变量 `MIMI_PET_DIR` |
-| `python` | `pythonw.exe` 完整路径；留空自动探测 |
-| `scale` | 缩放百分比（1-200） |
+| `enabled` | 是否随 DSH 启动 Mimi，默认 `true` |
+| `petDir` | 可选的本地完整项目目录；留空时优先使用包内 `pet/` |
+| `python` | `pythonw.exe` 完整路径；留空自动探测 Python 3.11 |
+| `scale` | 桌宠缩放百分比，范围 1–200 |
 
-## 环境要求
+## 环境与体积
 
-- 桌宠本体（`mimi_app`）：Python 3.11+、PySide6 6.x
-- 插件：Node 18+（零运行时依赖）
+- Windows 10/11
+- Node.js 18+（DSH 0.1.1-rc.2 实测环境为 Node.js 24）
+- Python 3.11+ 与 PySide6 6.x
+- npm 包自带 `mimi_app` 与运行时素材；若配置 `petDir`，会优先运行本地项目版本。
 
-## 开发
+## 本地开发与验证
 
 ```powershell
-# 本地目录安装（写 profile 层 patch，携带本机路径）
-node install.mjs --profile desktop
+$env:PYTHONPATH = (Resolve-Path .\mimi_app\src).Path
+python -m pytest .\mimi_app\tests -q
 
-# 发布新版本
-npm version patch
-npm publish
+python .\scripts\build_dsh_package.py
+dsh plugin --profile web add .\mimi-desktop-pet-0.4.0.tgz
+dsh web --dump-config
+```
+
+## 卸载
+
+```bash
+dsh plugin --profile web remove mimi-desktop-pet
 ```
 
 ## 许可

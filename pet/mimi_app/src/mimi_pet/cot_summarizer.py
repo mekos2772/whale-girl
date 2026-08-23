@@ -32,11 +32,17 @@ except Exception:  # pragma: no cover - fallback parser below
     _yaml = None
 
 DEFAULT_DSH_HOME = Path(os.environ.get("DSH_HOME", str(Path.home() / ".dsh")))
+DEFAULT_GLOBAL_DSH = (
+    Path(os.environ.get("APPDATA", str(Path.home() / "AppData" / "Roaming")))
+    / "npm"
+    / "node_modules"
+    / "@deepseek-ai"
+    / "dsh"
+)
 PI_AI_DATA = Path(
     os.environ.get(
         "MIMI_PI_AI_DATA",
-        r"C:\Users\14408\AppData\Roaming\npm\node_modules\@deepseek-ai\dsh"
-        r"\node_modules\@earendil-works\pi-ai\dist\providers\data",
+        str(DEFAULT_GLOBAL_DSH / "node_modules" / "@earendil-works" / "pi-ai" / "dist" / "providers" / "data"),
     )
 )
 DEFAULT_SETTINGS_PATH = DEFAULT_DSH_HOME / "settings.yaml"

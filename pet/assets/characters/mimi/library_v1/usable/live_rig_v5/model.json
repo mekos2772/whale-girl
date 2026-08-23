@@ -1,0 +1,47 @@
+{
+  "name": "Mimi Rig v5 action-matched flat master",
+  "version": 5,
+  "status": "usable_action_style_master",
+  "canvas": [1024, 1536],
+  "reference": "Exact 2x transparent extraction of wave frame 0001; clothing and canvas occupancy match full-frame actions.",
+  "layers": [
+    {
+      "name": "character_master",
+      "file": "source/master_action_style_v1.png",
+      "pivot": [512, 1488],
+      "z": 20
+    }
+  ],
+  "parameters": {
+    "body_breathe": {"min": -1, "max": 1, "default": 0},
+    "head_angle": {"min": -4, "max": 4, "default": 0},
+    "head_x": {"min": -9, "max": 9, "default": 0},
+    "head_y": {"min": -5, "max": 7, "default": 0}
+  },
+  "expressions": {
+    "neutral": {"character_master": "source/master_action_style_v1.png"},
+    "blink": {"character_master": "source/master_blink_v1.png"},
+    "happy": {"character_master": "source/master_happy_v1.png"},
+    "talk": {"character_master": "source/master_talk_v1.png"}
+  },
+  "eye_tracking": {
+    "enabled": true,
+    "supported_expressions": ["neutral"],
+    "base_file": "source/master_neutral_eye_base_v1.png",
+    "irises_file": "source/irises_original_v1.png",
+    "clip_file": "source/eye_clip_v1.png",
+    "foreground_file": "source/eye_lashes_foreground_v1.png",
+    "max_offset": [16, 8],
+    "source_parameters": ["head_x", "head_y"],
+    "rule": "Irises are pixel-extracted from the v5 action-derived master. Blink, smile and talk are locally copied from approved action frames; clothing never changes."
+  },
+  "capabilities": {
+    "idle_breathe": true,
+    "cursor_body_attention": true,
+    "click_squash": true,
+    "blink": true,
+    "smile": true,
+    "talk": true,
+    "independent_eye_tracking": true
+  }
+}

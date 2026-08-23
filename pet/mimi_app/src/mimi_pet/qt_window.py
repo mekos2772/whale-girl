@@ -9,13 +9,23 @@ from __future__ import annotations
 import time
 
 from PySide6.QtCore import QPoint, QPointF, QRectF, QTimer, Qt, Signal
-from PySide6.QtGui import QCursor, QColor, QFont, QFontMetrics, QPainter, QPolygonF
+from PySide6.QtGui import (
+    QActionGroup,
+    QColor,
+    QCursor,
+    QFont,
+    QFontMetrics,
+    QPainter,
+    QPolygonF,
+)
 from PySide6.QtWidgets import QMenu, QSlider, QWidget, QWidgetAction
 
-from .action_library import ActionLibrary
 from .collision import WorkArea, ground_for_point
 from .debug_overlay import draw_debug_overlay
-from .engine import PetEngine
+from .engine import PetEngine, touch_region
+
+# Dropped picture files count as treats (bread) for the pet.
+FEED_IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp")
 from .renderer import QtRenderer, RenderSnapshot
 from .state_machine import PetState
 
@@ -27,7 +37,6 @@ class MimiWindow(QWidget):
         self,
         engine: PetEngine,
         renderer: QtRenderer,
-        library: ActionLibrary,
         ground_provider: callable,
         bounds_provider: callable,
         size_changed: callable | None = None,
@@ -35,7 +44,6 @@ class MimiWindow(QWidget):
         super().__init__()
         self.engine = engine
         self.renderer = renderer
-        self.library = library
         self.ground_provider = ground_provider
         self.bounds_provider = bounds_provider
         self.size_changed = size_changed
@@ -50,6 +58,7 @@ class MimiWindow(QWidget):
         # never drags.
         self._press_armed = False
         self._press_pos = None
+        self._press_local = None
         self._long_press_s = float(engine.drag.config.long_press_s)
         self._start_move_px = float(engine.drag.config.drag_start_move_px)
         self._long_press_timer = QTimer(self)
@@ -60,12 +69,10 @@ class MimiWindow(QWidget):
         # Double-click detection (two clicks < 320 ms apart on the pet).
         self._last_release_at = 0.0
         self._double_click_ms = 320
-        # Hover reaction: staring at the pet for a while makes it shy.
-        self._hover_timer = QTimer(self)
-        self._hover_timer.setSingleShot(True)
-        self._hover_timer.setInterval(900)
-        self._hover_timer.timeout.connect(self._on_hover_react)
-        self._hover_cooldown_until = 0.0
+        # Welcome back: a pointer returning after a long absence waves hello.
+        # Hover itself stays silent — cursor attention is continuous (Live
+        # gaze tracking), only the leave→enter gap carries meaning.
+        self._pointer_left_at: float | None = None
 
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
@@ -76,6 +83,7 @@ class MimiWindow(QWidget):
         self.setAutoFillBackground(False)
         self.resize(engine.display_w, engine.display_h)
         self.setMouseTracking(True)
+        self.setAcceptDrops(True)
 
     # ------------------------------------------------------------------ rendering
 
@@ -143,6 +151,7 @@ class MimiWindow(QWidget):
             self._dragging = True
             self._press_armed = True
             self._press_pos = event.globalPosition()
+            self._press_local = event.position()
             self._long_press_timer.start()
             event.accept()
         elif event.button() == Qt.MouseButton.RightButton:
@@ -201,7 +210,13 @@ class MimiWindow(QWidget):
             if double_click:
                 self.engine.trigger_double_click()
             else:
-                self.engine.trigger_click_react()
+                local = self._press_local or event.position()
+                x_ratio = local.x() / max(1.0, float(self.width()))
+                y_ratio = local.y() / max(1.0, float(self.height()))
+                self.engine.trigger_touch(
+                    touch_region(x_ratio, y_ratio), x_ratio=x_ratio
+                )
+            self._press_local = None
             event.accept()
             return
         if self.engine.states.state is PetState.DRAGGING:
@@ -213,21 +228,15 @@ class MimiWindow(QWidget):
 
     def enterEvent(self, event) -> None:  # noqa: N802 (Qt override)
         super().enterEvent(event)
-        if self._dragging or self._press_armed:
+        if self._dragging or self._press_armed or self._pointer_left_at is None:
             return
-        self._hover_timer.start()
+        away_s = time.perf_counter() - self._pointer_left_at
+        self._pointer_left_at = None
+        self.engine.trigger_welcome_back(away_s)
 
     def leaveEvent(self, event) -> None:  # noqa: N802 (Qt override)
         super().leaveEvent(event)
-        self._hover_timer.stop()
-
-    def _on_hover_react(self) -> None:
-        now_s = time.perf_counter()
-        if now_s < self._hover_cooldown_until:
-            return
-        if self.engine.states.state is PetState.IDLE:
-            self.engine.trigger_hover_reaction()
-        self._hover_cooldown_until = now_s + 15.0
+        self._pointer_left_at = time.perf_counter()
 
     def _move_to_root(self) -> None:
         self.move(
@@ -235,33 +244,54 @@ class MimiWindow(QWidget):
             int(round(self.engine.root_y - self.engine.pivot_display_y)),
         )
 
+    def dragEnterEvent(self, event) -> None:  # noqa: N802 (Qt override)
+        mime = event.mimeData()
+        if mime.hasUrls() or mime.hasText():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event) -> None:  # noqa: N802 (Qt override)
+        mime = event.mimeData()
+        if mime.hasUrls():
+            # Pictures are treats: dropping an image feeds her bread.
+            paths = [url.toLocalFile() for url in mime.urls()]
+            if any(path.lower().endswith(FEED_IMAGE_EXTS) for path in paths):
+                if self.engine.feed_bread():
+                    event.acceptProposedAction()
+                    return
+        if self.engine.receive_drop():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
     # ------------------------------------------------------------------ menu
 
     MENU_QSS = """
     QMenu {
-        background-color: rgba(28, 26, 44, 240);
-        border: 1px solid rgba(130, 118, 220, 130);
-        border-radius: 10px;
-        padding: 6px;
-        font-family: "Microsoft YaHei";
-        font-size: 13px;
+        background-color: rgba(25, 30, 48, 248);
+        border: 1px solid rgba(126, 151, 218, 85);
+        border-radius: 12px;
+        padding: 7px;
+        font-family: "Microsoft YaHei UI", "Microsoft YaHei";
+        font-size: 12px;
     }
     QMenu::item {
         background: transparent;
-        color: #efeaff;
-        padding: 7px 28px 7px 14px;
-        border-radius: 6px;
-        margin: 1px 4px;
+        color: #edf2ff;
+        padding: 7px 30px 7px 13px;
+        border-radius: 7px;
+        margin: 1px 3px;
     }
     QMenu::item:selected {
-        background: rgba(112, 96, 225, 210);
+        background: rgba(95, 134, 237, 165);
     }
     QMenu::item:disabled {
-        color: #6f6a8a;
+        color: #69738f;
     }
     QMenu::separator {
         height: 1px;
-        background: rgba(150, 138, 230, 90);
+        background: rgba(126, 151, 218, 55);
         margin: 5px 12px;
     }
     QMenu::indicator {
@@ -271,7 +301,7 @@ class MimiWindow(QWidget):
     }
     QMenu::indicator:checked {
         image: none;
-        background: #8d7bff;
+        background: #7198ff;
         border-radius: 3px;
     }
     """
@@ -282,44 +312,42 @@ class MimiWindow(QWidget):
         menu = QMenu(self)
         menu.setStyleSheet(self.MENU_QSS)
 
-        # 表情
-        face_menu = menu.addMenu("😊  表情")
-        face_menu.setStyleSheet(self.MENU_QSS)
-        talk_action = face_menu.addAction("💬  说话嘴型")
-        talk_action.setCheckable(True)
-        talk_action.setChecked(self.engine.talking)
-        talk_action.toggled.connect(self.engine.set_talking)
-        happy_action = face_menu.addAction("😄  开心表情 3 秒")
-        happy_action.triggered.connect(lambda: self.engine.set_happy(3.0))
+        # 动作一律由交互触发（分区点击/双击/拖放/DSH 事件/久坐久睡场景），
+        # 菜单只保留功能入口：投喂、尺寸与位置、Harness。
+        feed_action = menu.addAction("投喂圆面包")
+        feed_action.triggered.connect(self.engine.feed_bread)
+        menu.addSeparator()
 
-        # 行为
-        behavior_menu = menu.addMenu("🛠️  行为")
-        behavior_menu.setStyleSheet(self.MENU_QSS)
-        dock_action = behavior_menu.addAction("📌  停靠底部（松手落回桌面）")
-        dock_action.setCheckable(True)
-        dock_action.setChecked(not self.engine.free_placement)
-        dock_action.toggled.connect(lambda checked: self.engine.set_free_placement(not checked))
-        free_action = behavior_menu.addAction("🪂  自由放置（关闭下落）")
-        free_action.setCheckable(True)
-        free_action.setChecked(self.engine.free_placement)
-        free_action.toggled.connect(self.engine.set_free_placement)
-
-        # 尺寸
-        size_menu = menu.addMenu("📐  尺寸")
-        size_menu.setStyleSheet(self.MENU_QSS)
-        for label, (width, height) in (("小号（192×288）", (192, 288)), ("中号（256×384）", (256, 384)), ("大号（320×480）", (320, 480))):
-            size_item = size_menu.addAction(label)
+        # 尺寸、停靠和调试显示集中到一个设置菜单。
+        settings_menu = menu.addMenu("尺寸与位置")
+        settings_menu.setStyleSheet(self.MENU_QSS)
+        size_group = QActionGroup(settings_menu)
+        size_group.setExclusive(True)
+        for label, (width, height) in (
+            ("小号（192×288）", (192, 288)),
+            ("中号（256×384）", (256, 384)),
+            ("大号（320×480）", (320, 480)),
+        ):
+            size_item = settings_menu.addAction(label)
             size_item.setCheckable(True)
             size_item.setChecked(self.engine.display_w == width)
+            size_group.addAction(size_item)
             size_item.triggered.connect(
                 lambda checked=False, w=width, h=height: self._apply_size(w, h)
             )
-        # 无级缩放滑块
-        size_menu.addSeparator()
-        slide_action = QWidgetAction(size_menu)
+        settings_menu.addSeparator()
+        slide_action = QWidgetAction(settings_menu)
         slide_row = QWidget()
         from PySide6.QtWidgets import QHBoxLayout, QLabel
 
+        slide_row.setStyleSheet(
+            "QLabel { color: #cbd7f5; font-size: 11px; }"
+            "QSlider::groove:horizontal { height: 4px; background: #303954; "
+            "border-radius: 2px; }"
+            "QSlider::sub-page:horizontal { background: #7198ff; border-radius: 2px; }"
+            "QSlider::handle:horizontal { background: #f2f5ff; width: 12px; "
+            "margin: -4px 0; border-radius: 6px; }"
+        )
         slide_layout = QHBoxLayout(slide_row)
         slide_layout.setContentsMargins(6, 2, 6, 2)
         slide_layout.setSpacing(4)
@@ -328,45 +356,55 @@ class MimiWindow(QWidget):
         slider.setRange(self.ZOOM_MIN_H, self.ZOOM_MAX_H)
         slider.setValue(self.engine.display_h)
         slider.setFixedWidth(150)
+        slide_layout.addWidget(slider)
+        zoom_value = QLabel(f"高 {self.engine.display_h}px")
         slider.valueChanged.connect(
             lambda h: self._apply_size(int(round(h * 2 / 3)), h)
         )
-        slide_layout.addWidget(slider)
-        slide_layout.addWidget(QLabel(f"高 {self.engine.display_h}px"))
+        slider.valueChanged.connect(lambda h: zoom_value.setText(f"高 {h}px"))
+        slide_layout.addWidget(zoom_value)
         slide_action.setDefaultWidget(slide_row)
-        size_menu.addAction(slide_action)
-
-        # 显示
-        view_menu = menu.addMenu("🖥️  显示")
-        view_menu.setStyleSheet(self.MENU_QSS)
-        debug_action = view_menu.addAction("🔍  调试信息")
+        settings_menu.addAction(slide_action)
+        settings_menu.addSeparator()
+        placement_group = QActionGroup(settings_menu)
+        placement_group.setExclusive(True)
+        dock_action = settings_menu.addAction("停靠屏幕底部")
+        dock_action.setCheckable(True)
+        dock_action.setChecked(not self.engine.free_placement)
+        placement_group.addAction(dock_action)
+        dock_action.toggled.connect(lambda checked: self.engine.set_free_placement(not checked))
+        free_action = settings_menu.addAction("自由放置")
+        free_action.setCheckable(True)
+        free_action.setChecked(self.engine.free_placement)
+        placement_group.addAction(free_action)
+        free_action.toggled.connect(self.engine.set_free_placement)
+        reset_action = settings_menu.addAction("回到屏幕底部")
+        reset_action.triggered.connect(self._reset_position)
+        debug_action = settings_menu.addAction("显示调试信息")
         debug_action.setCheckable(True)
         debug_action.setChecked(self.debug_enabled)
         debug_action.toggled.connect(self._set_debug_enabled)
-        reset_action = view_menu.addAction("📍  回到屏幕底部")
-        reset_action.triggered.connect(self._reset_position)
-
-        # 开发者：手动点播（调试/AI 事件预留动作）
-        dev_menu = menu.addMenu("🧑‍💻  开发者")
-        dev_menu.setStyleSheet(self.MENU_QSS)
-        actions_menu = dev_menu.addMenu("🎭  动作点播")
-        actions_menu.setStyleSheet(self.MENU_QSS)
-        for action in self.library.all():
-            item = actions_menu.addAction(action.name_zh)
-            item.setToolTip(action.id)
-            item.triggered.connect(
-                lambda checked=False, action_id=action.id: self.engine.force_perform(action_id)
-            )
 
         # DSH 集成
         if self.dsh is not None:
-            dsh_menu = menu.addMenu("DSH")
+            dsh_menu = menu.addMenu("Harness")
             dsh_menu.setStyleSheet(self.MENU_QSS)
-            send_action = dsh_menu.addAction("给 DSH 发消息")
-            send_action.triggered.connect(self._dsh_prompt)
-            show_panel_action = dsh_menu.addAction("显示 DSH 消息栏")
+            # 模式：DSH 联动 = 监听工作会话；桌宠 Agent = 影子会话聊天。
+            mode_group = QActionGroup(dsh_menu)
+            mode_group.setExclusive(True)
+            for label, value in (("DSH 联动", "link"), ("桌宠 Agent", "agent")):
+                mode_item = dsh_menu.addAction(label)
+                mode_item.setCheckable(True)
+                mode_item.setChecked(self.dsh.mode == value)
+                mode_group.addAction(mode_item)
+                mode_item.triggered.connect(
+                    lambda checked=False, m=value, item=mode_item: self._dsh_set_mode(item, m)
+                )
+            dsh_menu.addSeparator()
+            show_panel_action = dsh_menu.addAction("打开消息面板")
             show_panel_action.triggered.connect(self._dsh_show_panel)
-            cot_menu = dsh_menu.addMenu("思维链总结模型")
+            self._build_project_menu(dsh_menu)
+            cot_menu = dsh_menu.addMenu("摘要模型")
             cot_menu.setStyleSheet(self.MENU_QSS)
             self._build_cot_menu(cot_menu)
             if self.dsh.pending_questions:
@@ -379,16 +417,49 @@ class MimiWindow(QWidget):
                         lambda checked=False, q=question: self._dsh_answer(q)
                     )
             if self.dsh.last_error:
-                status_item = dsh_menu.addAction(f"DSH 未连接：{self.dsh.last_error[:30]}")
+                status_item = dsh_menu.addAction(f"未连接：{self.dsh.last_error[:30]}")
                 status_item.setEnabled(False)
 
         menu.addSeparator()
-        quit_action = menu.addAction("🚪  退出")
+        quit_action = menu.addAction("退出 Mimi")
         quit_action.triggered.connect(self.close)
         menu.exec(global_pos)
 
     def set_dsh_integration(self, dsh) -> None:
         self.dsh = dsh
+
+    def set_project_provider(self, choices_fn, select_fn, current_fn) -> None:
+        """Wire the Harness 项目 picker to the integration's session list."""
+        self._project_choices = choices_fn
+        self._project_select = select_fn
+        self._project_current = current_fn
+
+    def _build_project_menu(self, dsh_menu) -> None:
+        """DSH 联动模式：选择跟随哪个项目（会话）。"""
+        if getattr(self, "_project_choices", None) is None or self.dsh.mode != "link":
+            return
+        project_menu = dsh_menu.addMenu("项目")
+        project_menu.setStyleSheet(self.MENU_QSS)
+        current = self._project_current() if self._project_current else None
+        auto = project_menu.addAction("跟随当前活动")
+        auto.setCheckable(True)
+        auto.setChecked(current is None)
+        auto.triggered.connect(lambda: self._project_select(""))
+        project_menu.addSeparator()
+        choices = self._project_choices()
+        if not choices:
+            empty = project_menu.addAction("没有其他 DSH 会话")
+            empty.setEnabled(False)
+            return
+        for choice in choices:
+            sid = choice["session_id"]
+            dot = "●" if choice.get("running") else "○"
+            action = project_menu.addAction(f"{dot} {choice['label']}")
+            action.setCheckable(True)
+            action.setChecked(current == sid)
+            action.triggered.connect(
+                lambda checked=False, _sid=sid: self._project_select(_sid)
+            )
 
     def _dsh_prompt(self) -> None:
         from PySide6.QtWidgets import QInputDialog
@@ -400,6 +471,13 @@ class MimiWindow(QWidget):
     def _dsh_show_panel(self) -> None:
         if self.dsh is not None:
             self.dsh.request_show_panel()
+
+    def _dsh_set_mode(self, action, mode: str) -> None:
+        """Switch DSH link / pet-agent mode; reset the tick on failure."""
+        if self.dsh is None:
+            return
+        if not self.dsh.set_mode(mode):
+            action.setChecked(False)
 
     def _build_cot_menu(self, cot_menu) -> None:
         """思维链总结模型：自动跟随 DSH / 指定模型 / 关闭。"""

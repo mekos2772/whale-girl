@@ -10,11 +10,14 @@ from pathlib import Path
 
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QCursor, QGuiApplication
+from PySide6.QtNetwork import QLocalServer
 from PySide6.QtWidgets import QApplication
 
 from .action_library import ActionLibrary
+from .bubble_layer import BubbleLayer
 from .collision import WorkArea, ground_for_point, union_bounds
 from .config import load_config
+from .dsh_bridge import dbg
 from .dsh_integration import DshIntegration
 from .dsh_panel import DshPanel
 from .engine import PetEngine
@@ -26,6 +29,7 @@ from .state_machine import PetState
 
 TICK_INTERVAL_MS = 16  # ~60 Hz logic/render loop
 MAX_DT_S = 0.1
+SINGLETON_KEY = "mimi-pet-singleton"
 
 
 def qt_work_areas() -> tuple[WorkArea, ...]:
@@ -52,6 +56,15 @@ def run() -> int:
     app.setApplicationName("Mimi 桌宠")
     app.setQuitOnLastWindowClosed(True)
 
+    # Single desktop pet: when DSH's plugin auto-start collides with a
+    # manually launched pet, the latecomer exits instead of stacking a
+    # second overlapping character. removeServer clears a stale owner.
+    singleton = QLocalServer()
+    if not singleton.listen(SINGLETON_KEY):
+        QLocalServer.removeServer(SINGLETON_KEY)
+        if not singleton.listen(SINGLETON_KEY):
+            return 0
+
     config = load_config()
     library = ActionLibrary(Path(config["asset_manifest"]))
     engine = PetEngine(library, config)
@@ -68,6 +81,8 @@ def run() -> int:
             config.get("rig"),
             gaze_translation_scale=float(config["live"].get("gaze_translation_scale", 0.35)),
             gaze_hair_counter_scale=float(config["live"].get("gaze_hair_counter_scale", 0.3)),
+            flat_gaze_shift=float(config["live"].get("flat_gaze_shift", 1.0)),
+            flat_gaze_angle=float(config["live"].get("flat_gaze_angle", 0.35)),
         )
 
     renderer_holder["renderer"] = build_renderer()
@@ -78,7 +93,6 @@ def run() -> int:
     window = MimiWindow(
         engine,
         renderer_holder["renderer"],
-        library,
         ground_y_at,
         desktop_bounds,
         size_changed=rebuild_renderer,
@@ -86,13 +100,12 @@ def run() -> int:
 
     # DSH integration: status polling + live event stream + message bar.
     integration = DshIntegration(engine)
-    panel = DshPanel()
+    panel = DshPanel(window)
     integration.sink = panel
     panel.send_requested.connect(integration.prompt_active)
     panel.answer_requested.connect(integration.answer_question)
-    # Multi-project: the capsule "项目" picker lists every DSH session and
-    # lets the user pin which project is displayed / messaged.
-    panel.set_project_provider(
+    # Multi-project picking lives in the pet's right-click Harness menu.
+    window.set_project_provider(
         integration.session_choices,
         integration.select_session,
         integration.pinned_session,
@@ -102,23 +115,67 @@ def run() -> int:
         """Character's actual head position (height ~220 display px, scaled)."""
         return engine.root_y - 220.0 * engine.display_h / 384.0
 
-    def show_panel_at_pet() -> None:
-        """Show the message bubble right above the pet's head (click to expand)."""
+    def position_panel_at_pet() -> None:
+        """Pin the white input box above the pet. The input is the only
+        persistent surface — all information arrives as speech bubbles —
+        and it never steals focus while appearing."""
+        if panel.quick_input.hasFocus():
+            return  # never move the window mid-IME-composition
         panel.position_near(engine.root_x, pet_head_y())
-        panel.show_bubble()
+        if integration.connected:
+            panel.show_box()
+        else:
+            panel.hide()
 
-    integration.on_activity = show_panel_at_pet
+    integration.on_activity = position_panel_at_pet
     window.set_dsh_integration(integration)
     integration.start()
+
+    # DSH messages surface as transient speech bubbles above the head
+    # (one bubble per message); clicking one focuses the input.
+    bubbles = BubbleLayer()
+
+    def on_bubble_requested(text: str, kind: str) -> None:
+        dbg(f"bubble layer add kind={kind}")
+        bubbles.add_bubble(text, kind)
+        dbg(f"bubble layer chips={len(bubbles.bubbles())} visible={bubbles.isVisible()}")
+
+    panel.bubble_requested.connect(on_bubble_requested)
+    bubbles.message_clicked.connect(panel.show_panel)
 
     primary = QGuiApplication.primaryScreen()
     available = primary.availableGeometry()
     engine.place_at(available.center().x(), float(available.bottom()))
+    engine.note_input(time.perf_counter())
     window.move(
         int(round(engine.root_x - engine.pivot_display_x)),
         int(round(engine.root_y - engine.pivot_display_y)),
     )
+    # Paint one complete frame before exposing the translucent Tool window.
+    # Otherwise Windows can keep the initially empty alpha surface visually
+    # absent until a later repaint, making a healthy process look like a
+    # failed launch.
+    initial_now = time.perf_counter()
+    initial_cursor = QCursor.pos()
+    initial_frame = engine.tick(
+        initial_now,
+        0.0,
+        (float(initial_cursor.x()), float(initial_cursor.y())),
+        None,
+        None,
+    )
+    initial_snapshot = build_snapshot(
+        initial_frame,
+        engine,
+        (engine.display_w, engine.display_h),
+    )
+    initial_pixmap = renderer_holder["renderer"].render(initial_snapshot)
+    window.show_frame(initial_snapshot, initial_pixmap)
+    window.setWindowTitle("Mimi 桌宠")
     window.show()
+    window.raise_()
+    window.repaint()
+    app.processEvents()
 
     ticker = QTimer()
     ticker.setTimerType(Qt.TimerType.PreciseTimer)
@@ -137,18 +194,22 @@ def run() -> int:
             engine.note_input(now)
         ground = ground_y_at(engine.root_x, engine.root_y) if engine.states.state is PetState.FALLING else None
         x_bounds = None
-        if engine.states.state is PetState.FALLING:
-            bounds = desktop_bounds()
-            if bounds is not None:
-                x_bounds = (
-                    bounds.x + engine.pivot_display_x,
-                    bounds.right - (engine.display_w - engine.pivot_display_x),
-                )
+        bounds = desktop_bounds()
+        if bounds is not None:
+            x_bounds = (
+                bounds.x + engine.pivot_display_x,
+                bounds.right - (engine.display_w - engine.pivot_display_x),
+            )
         frame = engine.tick(now, dt, (float(cursor.x()), float(cursor.y())), ground, x_bounds)
         integration.maintain_anim()
-        # Keep the message bar pinned above the pet's head while visible.
-        if panel.isVisible():
+        # Keep the capsule pinned above the pet's head while visible, but
+        # freeze it while the quick input is focused: moving the top-level
+        # window mid-composition would discard a half-typed Chinese phrase.
+        if panel.isVisible() and not panel.quick_input.hasFocus():
             panel.position_near(engine.root_x, pet_head_y())
+        if bubbles.isVisible() and not panel.quick_input.hasFocus():
+            top = panel.y() if panel.isVisible() else pet_head_y()
+            bubbles.position_above(engine.root_x, top)
         snapshot = build_snapshot(frame, engine, (engine.display_w, engine.display_h))
         pixmap = renderer_holder["renderer"].render(snapshot)
         window.show_frame(snapshot, pixmap)
@@ -178,29 +239,16 @@ def run() -> int:
         integration.drain_events()
         integration.drain_poll()
 
-    panel_idle = QTimer()
-    panel_idle.setInterval(5000)
-
-    def on_panel_idle() -> None:
-        # Auto-hide the message bar after 90 s of DSH silence while idle.
-        if (
-            panel.isVisible()
-            and not integration.working
-            and time.time() - integration.last_activity_at > 90.0
-        ):
-            panel.hide()
-
     check.timeout.connect(on_check)
     dsh_poll.timeout.connect(on_dsh_poll)
     dsh_drain.timeout.connect(on_dsh_drain)
-    panel_idle.timeout.connect(on_panel_idle)
 
     def shutdown() -> None:
         ticker.stop()
         check.stop()
         dsh_poll.stop()
         dsh_drain.stop()
-        panel_idle.stop()
+        bubbles.hide()
         integration.stop()
 
     window.closed.connect(shutdown)
@@ -212,7 +260,6 @@ def run() -> int:
     check.start()
     dsh_poll.start()
     dsh_drain.start()
-    panel_idle.start()
     return app.exec()
 
 

@@ -69,7 +69,11 @@ def _clamp(value: float, low: float, high: float) -> float:
 
 def build_snapshot(frame: EngineFrame, engine: PetEngine, display_size: tuple[int, int]) -> RenderSnapshot:
     """Turn an engine frame into pure render data; never mutates the engine."""
-    full_frame = frame.sprite is not None and frame.state in (PetState.PERFORMING, PetState.LANDING)
+    full_frame = frame.sprite is not None and frame.state in (
+        PetState.PERFORMING,
+        PetState.LANDING,
+        PetState.SLEEPING,
+    )
     drag_pose = frame.state is PetState.DRAGGING and frame.drag_pose_path is not None
     drag = frame.drag if frame.state is PetState.DRAGGING else None
     if frame.state is PetState.FALLING:
@@ -152,6 +156,8 @@ class QtRenderer:
         calibration: dict | None = None,
         gaze_translation_scale: float = 0.35,
         gaze_hair_counter_scale: float = 0.3,
+        flat_gaze_shift: float = 1.0,
+        flat_gaze_angle: float = 0.35,
     ) -> None:
         self.cache = cache
         self.rig = rig
@@ -164,6 +170,11 @@ class QtRenderer:
         # Head translation remains heavily damped so the face never drifts.
         self._gaze_translation_scale = gaze_translation_scale
         self._gaze_hair_counter_scale = gaze_hair_counter_scale
+        # Flat rig (v5): whole-body attention multipliers. The single master
+        # plate cannot separate, so these stay clearly visible (the historical
+        # 0.12 damping read as "no tracking at all").
+        self._flat_gaze_shift = flat_gaze_shift
+        self._flat_gaze_angle = flat_gaze_angle
         # Layer images are scaled from the 1024x1536 master to the window.
         self._px_scale = self.display_w / rig.canvas[0]
         # Fixed registration of the composed rig onto the full-frame ground
@@ -178,10 +189,13 @@ class QtRenderer:
         # neck area) after calibration. Body drag tilt rotates around this
         # point so the character swings from its collar like being carried,
         # never like a pendulum rocking on its feet.
+        self._flat_rig = False
         try:
             head_pivot = rig.layer("head_expression").pivot[1]
         except KeyError:
+            # Flat rig (v5): no head layer; expressions swap the whole master.
             head_pivot = 654.0
+            self._flat_rig = True
         self._pickup_y = head_pivot * master_scale * self._px_scale + self._ty_disp
         self._layer_pixmaps: dict[str, QPixmap] = {}
         self._head_pixmaps: dict[tuple[float, float], QPixmap] = {}
@@ -279,7 +293,10 @@ class QtRenderer:
         breathe_scale = 1.0 + breathe * 0.006
         # Click reaction: a soft vertical squash and rebound (0..1 pulse).
         click_squash = 1.0 - snapshot.click_react * 0.05
-        head_file = self._head_file(snapshot.expression)
+        try:
+            head_file = self._head_file(snapshot.expression)
+        except KeyError:
+            head_file = Path()
 
         for layer in self.rig.layers:
             if layer.experimental:
@@ -318,6 +335,23 @@ class QtRenderer:
             pixmap = QPixmap.fromImage(shifted)
         return pixmap
 
+    def _master_expression_file(self, expression: str) -> Path | None:
+        """Flat rig (v5): blink/smile variants replace the whole master image."""
+        if not self._flat_rig or not self.rig.expressions:
+            return None
+        filename = self.rig.expressions.get(expression) or self.rig.expressions.get("neutral")
+        if filename is None:
+            return None
+        master = self.rig.layer("character_master")
+        raw = Path(filename)
+        if raw.is_absolute():
+            return raw
+        # Flat expression mappings are authored relative to model.json. The
+        # master itself normally lives in model_root/source/.
+        model_root = master.file.parent.parent
+        from_root = model_root / raw
+        return from_root if from_root.is_file() else master.file.parent / raw.name
+
     def _head_file(self, expression: str) -> Path:
         head = self.rig.layer("head_expression")
         filename = self.rig.expressions.get(expression) or self.rig.expressions.get("neutral")
@@ -336,11 +370,16 @@ class QtRenderer:
             return 0.0
         return _clamp(relative / abs(span), -1.0, 1.0)
 
-    def _head_pixmap(self, snapshot: RenderSnapshot, head_file: Path) -> QPixmap:
-        """Return the reviewed whole face or a clipped neutral eye composite."""
+    def _tracked_pixmap(
+        self,
+        snapshot: RenderSnapshot,
+        fallback_layer: str,
+        fallback_file: Path,
+    ) -> QPixmap:
+        """Return an exact rest plate or a clipped moving-iris composite."""
         tracking = self.rig.eye_tracking
         if tracking is None or snapshot.expression not in tracking.supported_expressions:
-            return self._layer_pixmap("head_expression", head_file)
+            return self._layer_pixmap(fallback_layer, fallback_file)
 
         x_name, y_name = tracking.source_parameters
         eye_x = self._normalised_parameter(snapshot.head_x, self.rig.parameters.get(x_name))
@@ -355,7 +394,7 @@ class QtRenderer:
         if abs(dx) < 0.125 and abs(dy) < 0.125:
             # Exact approved master at rest: no compositing differences and no
             # possibility of a one-frame pop when auto-blink starts.
-            return self._layer_pixmap("head_expression", head_file)
+            return self._layer_pixmap(fallback_layer, fallback_file)
         key = (dx, dy)
         cached = self._head_pixmaps.get(key)
         if cached is not None:
@@ -386,6 +425,14 @@ class QtRenderer:
         self._head_pixmaps[key] = result
         return result
 
+    def _head_pixmap(self, snapshot: RenderSnapshot, head_file: Path) -> QPixmap:
+        """Layered-rig compatibility wrapper around eye tracking."""
+        return self._tracked_pixmap(snapshot, "head_expression", head_file)
+
+    def _flat_master_pixmap(self, snapshot: RenderSnapshot, master_file: Path) -> QPixmap:
+        """v5 whole-character plate with independent, clipped iris motion."""
+        return self._tracked_pixmap(snapshot, "character_master", master_file)
+
     def _draw_layer(
         self,
         painter: QPainter,
@@ -399,12 +446,18 @@ class QtRenderer:
         head_file: Path,
         click_squash: float = 1.0,
     ) -> None:
-        file = head_file if layer.name == "head_expression" else layer.file
-        pixmap = (
-            self._head_pixmap(snapshot, head_file)
-            if layer.name == "head_expression"
-            else self._layer_pixmap(layer.name, file)
-        )
+        if layer.name == "head_expression":
+            file = head_file
+        elif layer.name == "character_master":
+            file = self._master_expression_file(snapshot.expression) or layer.file
+        else:
+            file = layer.file
+        if layer.name == "head_expression":
+            pixmap = self._head_pixmap(snapshot, head_file)
+        elif layer.name == "character_master":
+            pixmap = self._flat_master_pixmap(snapshot, file)
+        else:
+            pixmap = self._layer_pixmap(layer.name, file)
         # Rotation centre in display px (layer image is the master scaled to
         # the window).
         px = layer.pivot[0] * self._px_scale
@@ -431,6 +484,21 @@ class QtRenderer:
             # scale about the body pivot.
             extra_y = breathe * 0.006 * (ground_y - py)
             extra_y += (click_squash - 1.0) * (ground_y - py)
+        elif layer.name == "character_master":
+            # v5 uses the exact action-derived full character as one stable
+            # plate: whole-body attention (foot-anchored, so the feet never
+            # slide) plus foot-anchored breathing. One plate cannot separate.
+            scale_y = layer_scale * breathe_scale * click_squash
+            extra_y = breathe * 0.006 * (ground_y - py)
+            extra_y += (click_squash - 1.0) * (ground_y - py)
+            extra_x += snapshot.head_x * self._gaze_translation_scale * self._flat_gaze_shift
+            extra_y += (
+                snapshot.head_y
+                * self._gaze_translation_scale
+                * self._flat_gaze_shift
+                * 0.8
+            )
+            local_angle = snapshot.head_angle * self._flat_gaze_angle
         elif layer.name in ("arm_left", "arm_right"):
             local_angle = breathe * 0.18 * 5.0
         elif layer.name == "back_hair":

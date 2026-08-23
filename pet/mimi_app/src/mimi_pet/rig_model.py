@@ -76,11 +76,18 @@ def load_rig_model(model_path: Path) -> RigModel:
             )
         )
     layers.sort(key=lambda layer: layer.z)
-    expressions = {
-        name: mapping["head_expression"]
-        for name, mapping in data.get("expressions", {}).items()
-        if "head_expression" in mapping
-    }
+    expressions: dict[str, str] = {}
+    for name, mapping in data.get("expressions", {}).items():
+        if "head_expression" in mapping:
+            # Layered rig: the expression swaps the head layer's file.
+            expressions[name] = str(mapping["head_expression"])
+        elif "character_master" in mapping:
+            # Flat rig (v5): the expression swaps the whole master image
+            # (blink/smile variants are edits of the same master).
+            path = (root / str(mapping["character_master"])).resolve()
+            if not path.is_file():
+                raise FileNotFoundError(f"rig expression {name}: missing {path}")
+            expressions[name] = str(mapping["character_master"])
     parameters = data.get("parameters", {})
     raw_eye = data.get("eye_tracking")
     eye_tracking = None
