@@ -15,7 +15,11 @@
     "lib/index.js",
     "cordis.patch.yml",
     "README.md",
-    "pet/**"
+    "pet/**",
+    "!pet/assets/characters/mimi/library_v1/candidates/**",
+    "!pet/mimi_app/config/agent_session.json",
+    "!**/__pycache__/**",
+    "!**/.pytest_cache/**"
   ],
   "dsh": {
     "bundle": {
