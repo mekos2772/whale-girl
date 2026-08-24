@@ -3,3 +3,6 @@
 
 __pycache__/
 *.pyc
+.pytest_cache/
+pet/mimi_app/config/agent_session.json
+pet/assets/characters/mimi/library_v1/candidates/

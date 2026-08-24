@@ -1,0 +1,4 @@
+pet/assets/characters/mimi/library_v1/candidates/**
+pet/mimi_app/config/agent_session.json
+pet/mimi_app/config/.pytest_cache/**
+**/.pytest_cache/**
