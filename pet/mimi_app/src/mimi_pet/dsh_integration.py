@@ -34,6 +34,7 @@ from .activity_text import (
 from .cot_summarizer import CoTSummarizer, local_summary
 from .dsh_bridge import DshBridge, DshError, DshEvent, DshEventThread, dbg
 from .engine import PetEngine
+from .plugin_update import installed_plugin_version, is_newer, latest_plugin_version
 from .state_machine import PetState
 
 
@@ -189,16 +190,23 @@ class DshIntegration:
         self._text_tag: str | None = None
         self._text_block = 0
         self._last_assistant_text = ""
-        self._tools_since_user = False
         self._tool = ""
         self._tool_tag: str | None = None
         self._tool_block = 0
+        # Reasoning tracking only drives the thinking animation/status; the
+        # chain-of-thought itself is deliberately never summarized or surfaced.
         self._reasoning = ""
         self._reasoning_tag: str | None = None
         self._reasoning_pending = False
 
-        # Chain-of-thought summarizer (worker thread delivers via event queue).
+        # Reply summarizer: compresses the assistant's NORMAL output (the
+        # finished reply bubble) into one short line on a worker thread.
         self.cot = CoTSummarizer()
+        self._output_summary_block = 0
+
+        # npm 插件更新提醒：连接后检查一次，发现新版则气泡提醒。
+        self.plugin_update: tuple[str, str] | None = None  # (installed, latest)
+        self._update_checked = False
 
         # Head-top activity capsule state (display layer; see ActivityState).
         self._harness_raw = ""
@@ -206,7 +214,6 @@ class DshIntegration:
         self._tool_name = ""
         self._tool_args = ""
         self._tool_full = ""
-        self._summary_text = ""  # latest CoT summary (compressed for the capsule)
         self._waiting_text = ""
         self._done_until_s = 0.0
         # Multi-project support: DSH can advance several sessions at once.
@@ -299,8 +306,9 @@ class DshIntegration:
             summary, full = self._pick_tool_state()
             return ActivityState(harness, "tool", "调用工具", summary, full, True, False)
         if self._reasoning_pending:
-            # Current task summary takes priority while reasoning; fall back.
-            source = self._summary_text or self._title
+            # The thinking status carries the task title; the reasoning
+            # itself is never summarized (feature removed by request).
+            source = self._title
             if source:
                 return ActivityState(
                     harness, "thinking", "思考中",
@@ -571,6 +579,7 @@ class DshIntegration:
                 self._capsule_revealed = True
                 if self.on_activity is not None:
                     self.on_activity()
+                self.check_plugin_update()
         elif method == "session/jobs":
             self._handle_jobs(payload)
         elif method == "question/requested":
@@ -582,14 +591,19 @@ class DshIntegration:
             if self._accept_event_session(payload):
                 self._handle_session_event(payload)
         elif method == "cot/result":
-            # Summarized reasoning delivered by the worker thread.
+            # Reply summary delivered by the worker thread.
             tag = payload.get("tag", "")
             text = payload.get("text", "")
             if tag and text:
-                self._sink("set_row", tag, "summary", text)
-                self._summary_text = text
-                if self._summary_bubble_worthy(text):
-                    self._bubble(f"总结：{text}", kind="summary")
+                self._present_summary(tag, text)
+        elif method == "plugin/update":
+            # npm 插件版本对比结果（worker 线程回投）。
+            installed = str(payload.get("installed") or "").strip()
+            latest = str(payload.get("latest") or "").strip()
+            if installed and latest:
+                self.plugin_update = (installed, latest)
+                if is_newer(latest, installed):
+                    self._bubble(f"插件更新：v{latest} 已发布（当前 v{installed}）", kind="info")
         elif method == "approval/requested":
             if not self._accept_event_session(payload):
                 self._emit_activity()
@@ -607,18 +621,6 @@ class DshIntegration:
         elif method == "approval/resolved":
             self._waiting_text = ""
         self._emit_activity()
-
-    def _summary_bubble_worthy(self, text: str) -> bool:
-        """Pure chat replies need no summary bubble, and a summary that just
-        restates the bubbled reply is a duplicate — the summarizer lands
-        seconds after the reply, when the user has often moved on."""
-        current = (text or "").strip()
-        if not current or not self._tools_since_user:
-            return False
-        last = (self._last_assistant_text or "").strip()
-        if last and (current in last or last in current):
-            return False
-        return True
 
     def _handle_jobs(self, payload: dict) -> None:
         # Running jobs are already surfaced as tool rows (工具：pwsh), so we
@@ -656,6 +658,9 @@ class DshIntegration:
             if final_text:
                 self._last_assistant_text = final_text
                 self._bubble(final_text, kind="assistant")
+                # The normal output gets a compressed summary bubble too;
+                # short replies are skipped inside _submit_output_summary.
+                self._submit_output_summary(final_text)
             # Consume the text exactly once: the next assistant/message (e.g.
             # a tool-only step) must never re-emit this turn's wording.
             self._text = ""
@@ -672,7 +677,6 @@ class DshIntegration:
             self._tool_full = row
             self._sink("set_row", "tool_active", "tool", row)
             self._tool_active = True
-            self._tools_since_user = True
             self._set_anim("tool")
             self._note_activity()
             self._maybe_tool_bubble(tool)
@@ -746,7 +750,6 @@ class DshIntegration:
             elif block_type == "reasoning":
                 self._reasoning = ""
                 self._reasoning_pending = True
-                self._summary_text = ""  # previous block's summary is stale now
                 self._reasoning_tag = f"reason_{turn}_{step}"
                 self._sink("set_row", self._reasoning_tag, "progress", "思考中…")
                 self._set_anim("thinking")
@@ -800,20 +803,33 @@ class DshIntegration:
             self._finish_text()
 
     def _submit_reasoning(self) -> None:
-        """Send collected reasoning to the summarizer (worker thread)."""
+        """A reasoning block ended: retire the thinking state and buffers.
+
+        The chain of thought is deliberately NOT summarized or surfaced (only
+        the assistant's normal output gets a summary); this stops the thinking
+        status.
+        """
         if not self._reasoning_pending:
             return
         self._reasoning_pending = False
-        text = self._reasoning
-        tag = self._reasoning_tag
         self._reasoning = ""
         self._reasoning_tag = None
-        if not text.strip() or not tag:
+
+    # ------------------------------------------------------------- reply summaries
+
+    def _submit_output_summary(self, text: str) -> None:
+        """Compress a finished assistant reply into one short bubble line.
+
+        Short replies are left as-is; a summary of a one-liner would just echo
+        it. The worker thread keeps the Qt main loop unblocked.
+        """
+        if not self.cot or not self.cot.enabled:
             return
-        if not self.cot or not self.cot.enabled or len(text.strip()) < 80:
-            self._sink("set_row", tag, "summary", local_summary(text))
+        text = " ".join(str(text or "").split())
+        if len(text) < 60:
             return
-        self._sink("set_row", tag, "progress", "思考中…")
+        tag = f"out_{self._output_summary_block}"
+        self._output_summary_block += 1
 
         def work() -> None:
             try:
@@ -826,6 +842,52 @@ class DshIntegration:
 
         threading.Thread(target=work, daemon=True).start()
 
+    def _present_summary(self, tag: str, text: str) -> None:
+        """Surface a finished reply summary as a bubble."""
+        if not text:
+            return
+        self._sink("set_row", tag, "summary", text)
+        if self._summary_bubble_worthy(text):
+            self._bubble(f"总结：{text}", kind="summary")
+
+    def _summary_bubble_worthy(self, text: str) -> bool:
+        """Only a verbatim restatement of the just-bubbled reply is dropped.
+
+        Short phrases are never used for containment so a casual reply cannot
+        swallow a real summary.
+        """
+        current = (text or "").strip()
+        if not current:
+            return False
+        last = (self._last_assistant_text or "").strip()
+        if not last:
+            return True
+        if len(current) <= len(last):
+            short, long, short_is_reply = current, last, False
+        else:
+            short, long, short_is_reply = last, current, True
+        # A casual short reply ("收到喵～") must not swallow a longer summary
+        # through the containment check; a short summary that the reply verbatim
+        # quotes is a genuine restatement and stays suppressed.
+        if short_is_reply and len(short) < 8:
+            return True
+        return short not in long
+
+    # ------------------------------------------------------------------ CoT config
+
+    def configure_cot(self, provider: str, model: str = "", enabled: bool = True) -> None:
+        """Switch the reply summarizer model (menu). provider "auto" follows DSH."""
+        if self.cot is None:
+            return
+        self.cot.enabled = enabled
+        self.cot.configure(provider if provider != "auto" else "auto", model or None)
+
+    def cot_model_choices(self) -> list[tuple[str, str, str]]:
+        """(label, provider, model) options for the context menu."""
+        if self.cot is None:
+            return [("关闭", "auto", "")]
+        return self.cot.model_choices()
+
     def _finish_text(self) -> None:
         self._text_tag = None
         self._tool_tag = None
@@ -834,7 +896,6 @@ class DshIntegration:
         # The user's own messages are intentionally not shown in the pet UI;
         # a new turn also retires the previous turn's streamed text.
         self._note_activity()
-        self._tools_since_user = False
         self._text = ""
 
     # --------------------------------------------------------------- questions
@@ -866,21 +927,6 @@ class DshIntegration:
         if not self.pending_questions:
             self._waiting_text = ""
         self._emit_activity()
-
-    # ------------------------------------------------------------------ CoT config
-
-    def configure_cot(self, provider: str, model: str = "", enabled: bool = True) -> None:
-        """Switch the reasoning summarizer model (menu). provider "auto" follows DSH."""
-        if self.cot is None:
-            return
-        self.cot.enabled = enabled
-        self.cot.configure(provider if provider != "auto" else "auto", model or None)
-
-    def cot_model_choices(self) -> list[tuple[str, str, str]]:
-        """(label, provider, model) options for the context menu."""
-        if self.cot is None:
-            return [("关闭", "auto", "")]
-        return self.cot.model_choices()
 
     # ------------------------------------------------------------------ pet reactions
 
@@ -919,14 +965,47 @@ class DshIntegration:
         if self.engine.states.state is PetState.IDLE:
             self.engine.force_perform("fun_facepalm")
 
+    # ------------------------------------------------------------ plugin update
+
+    def check_plugin_update(self) -> None:
+        """Compare the installed npm plugin version against the registry once."""
+        if self._update_checked:
+            return
+        self._update_checked = True
+
+        def work() -> None:
+            try:
+                installed = installed_plugin_version()
+                latest = latest_plugin_version()
+            except Exception:
+                return
+            if not installed or not latest:
+                return
+            self.event_queue.put(
+                DshEvent(
+                    method="plugin/update",
+                    rpc_id="",
+                    payload={"installed": installed, "latest": latest},
+                )
+            )
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def plugin_update_available(self) -> tuple[str, str] | None:
+        """(installed, latest) when a newer npm plugin version exists."""
+        if self.plugin_update and is_newer(self.plugin_update[1], self.plugin_update[0]):
+            return self.plugin_update
+        return None
+
     def _bubble(self, text: str, duration: float = 4.0, kind: str = "info") -> None:
         """Transient bubble: the bubble layer when attached, else in-window.
 
         Lightly throttled so bursts of DSH events do not flood the head;
-        question/approval bubbles always show (they need the user).
+        question/approval bubbles always show (they need the user) and so does
+        the reply summary (it is naturally rate-limited by replies).
         """
         now = time.perf_counter()
-        if kind != "question" and now - self._last_bubble_at < 1.2:
+        if kind not in ("question", "summary") and now - self._last_bubble_at < 1.2:
             return
         self._last_bubble_at = now
         method = getattr(self.sink, "show_bubble", None)

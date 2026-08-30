@@ -25,7 +25,7 @@ def debug_lines(snapshot: RenderSnapshot) -> list[str]:
         f"DIR     {snapshot.direction or '-'}   BAND {snapshot.speed_band or '-'}",
         f"POSE    {snapshot.pose_set or '-'}",
         f"TILT    {snapshot.body_tilt:.2f} deg   hair {snapshot.hair_lag:.2f}   skirt {snapshot.skirt_lag:.2f}",
-        f"FACE    {snapshot.expression}",
+        f"FACE    {snapshot.mouth}{'+blink' if snapshot.eyes_closed else ''}",
         f"GROUND  {snapshot.ground_y if snapshot.ground_y is not None else '-'}",
     ]
 

@@ -24,6 +24,12 @@
     "happy": {"character_master": "source/master_happy_v1.png"},
     "talk": {"character_master": "source/master_talk_v1.png"}
   },
+  "expression_patches": {
+    "mouth_happy": "source/mouth_happy_v1.png",
+    "mouth_talk": "source/mouth_talk_v1.png",
+    "lids_blink": "source/lids_blink_v1.png",
+    "rule": "Region patches overlay the tracked neutral base so states compose (blink keeps the smile, irises stay tracked under every mouth). Whole-master expressions remain the fallback for rigs without patches."
+  },
   "eye_tracking": {
     "enabled": true,
     "supported_expressions": ["neutral"],

@@ -404,6 +404,11 @@ class MimiWindow(QWidget):
             show_panel_action = dsh_menu.addAction("打开消息面板")
             show_panel_action.triggered.connect(self._dsh_show_panel)
             self._build_project_menu(dsh_menu)
+            update_info = self.dsh.plugin_update_available()
+            if update_info:
+                installed, latest = update_info
+                update_item = dsh_menu.addAction(f"插件更新：v{latest} 已发布（当前 v{installed}）")
+                update_item.setEnabled(False)
             cot_menu = dsh_menu.addMenu("摘要模型")
             cot_menu.setStyleSheet(self.MENU_QSS)
             self._build_cot_menu(cot_menu)
@@ -480,7 +485,7 @@ class MimiWindow(QWidget):
             action.setChecked(False)
 
     def _build_cot_menu(self, cot_menu) -> None:
-        """思维链总结模型：自动跟随 DSH / 指定模型 / 关闭。"""
+        """摘要模型：自动跟随 DSH / 指定模型 / 关闭（对回复做总结）。"""
         if self.dsh is None or self.dsh.cot is None:
             return
         current = (self.dsh.cot.provider, self.dsh.cot.model)

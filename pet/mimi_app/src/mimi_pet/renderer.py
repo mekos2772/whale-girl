@@ -46,6 +46,11 @@ class RenderSnapshot:
     display_size: tuple[int, int]
     pivot_display: tuple[float, float]
     ground_y: float | None
+    # Independent expression channels (flat-rig patch compositing). ``mouth``
+    # is neutral/happy/talk; ``eyes_closed`` is the blink channel. Legacy
+    # whole-swap rigs fold them back into ``expression`` instead.
+    mouth: str = "neutral"
+    eyes_closed: bool = False
     # Live layer parameters (None when rendering a full frame).
     body_breathe: float = 0.0
     head_angle: float = 0.0
@@ -104,6 +109,8 @@ def build_snapshot(frame: EngineFrame, engine: PetEngine, display_size: tuple[in
         mode=mode,
         frame_path=path,
         expression=frame.expression,
+        mouth=frame.mouth,
+        eyes_closed=frame.eyes_closed,
         state=frame.state.name,
         action_id=frame.action_id,
         frame_index=index,
@@ -375,10 +382,12 @@ class QtRenderer:
         snapshot: RenderSnapshot,
         fallback_layer: str,
         fallback_file: Path,
+        expression: str | None = None,
     ) -> QPixmap:
         """Return an exact rest plate or a clipped moving-iris composite."""
         tracking = self.rig.eye_tracking
-        if tracking is None or snapshot.expression not in tracking.supported_expressions:
+        active = snapshot.expression if expression is None else expression
+        if tracking is None or active not in tracking.supported_expressions:
             return self._layer_pixmap(fallback_layer, fallback_file)
 
         x_name, y_name = tracking.source_parameters
@@ -430,8 +439,41 @@ class QtRenderer:
         return self._tracked_pixmap(snapshot, "head_expression", head_file)
 
     def _flat_master_pixmap(self, snapshot: RenderSnapshot, master_file: Path) -> QPixmap:
-        """v5 whole-character plate with independent, clipped iris motion."""
-        return self._tracked_pixmap(snapshot, "character_master", master_file)
+        """v5 whole-character plate with independent, clipped iris motion.
+
+        With region patches the tracked neutral base is always the plate and
+        mouth/eyelid patches compose on top, so a blink keeps the smile and
+        the irises never snap between states. Rigs without patches fall back
+        to the legacy whole-master swap.
+        """
+        patches = self.rig.expression_patches
+        if patches is None:
+            return self._tracked_pixmap(snapshot, "character_master", master_file)
+        base = self._tracked_pixmap(
+            snapshot, "character_master", master_file, expression="neutral"
+        )
+        mouth_key = {
+            "happy": ("patch_mouth_happy", patches.mouth_happy),
+            "talk": ("patch_mouth_talk", patches.mouth_talk),
+        }.get(snapshot.mouth)
+        if mouth_key is None and not snapshot.eyes_closed:
+            return base
+        image = base.toImage()
+        painter = QPainter(image)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        if snapshot.eyes_closed:
+            # Lids first: they cover the tracked irises completely.
+            painter.drawPixmap(
+                0, 0, self._layer_pixmap("patch_lids_blink", patches.lids_blink)
+            )
+        if mouth_key is not None:
+            # The mouth is stamped last: in the few overlap rows the two
+            # paste ellipses share, the active mouth wins the lids' cheek
+            # feather, keeping the smile/lips intact.
+            key, file = mouth_key
+            painter.drawPixmap(0, 0, self._layer_pixmap(key, file))
+        painter.end()
+        return QPixmap.fromImage(image)
 
     def _draw_layer(
         self,
@@ -448,14 +490,12 @@ class QtRenderer:
     ) -> None:
         if layer.name == "head_expression":
             file = head_file
-        elif layer.name == "character_master":
-            file = self._master_expression_file(snapshot.expression) or layer.file
         else:
             file = layer.file
         if layer.name == "head_expression":
             pixmap = self._head_pixmap(snapshot, head_file)
         elif layer.name == "character_master":
-            pixmap = self._flat_master_pixmap(snapshot, file)
+            pixmap = self._flat_master_pixmap(snapshot, layer.file)
         else:
             pixmap = self._layer_pixmap(layer.name, file)
         # Rotation centre in display px (layer image is the master scaled to

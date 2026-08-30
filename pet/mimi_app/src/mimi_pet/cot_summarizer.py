@@ -1,9 +1,12 @@
-"""Chain-of-thought (reasoning) summarizer for the DSH message bar.
+"""Reply summarizer for the pet's DSH message bubbles.
+
+Summarizes the assistant's NORMAL output (the final reply text) into one short
+line; the chain-of-thought (reasoning blocks) is deliberately never sent in —
+the pet only reads what the user gets to see.
 
 Uses the same model DSH is configured with — ``agent-default-model`` in
-``~/.dsh/settings.yaml`` (currently opencode-go / deepseek-v4-flash) — through
-the provider's OpenAI-compatible endpoint. The model/provider can be switched
-at runtime via ``configure()`` and persisted to a small sidecar JSON.
+``~/.dsh/settings.yaml`` — through the provider's OpenAI-compatible endpoint.
+The model/provider can be switched at runtime via ``configure()``.
 
 Pure stdlib (urllib), so domain tests run without extra dependencies and the
 pet never blocks: calls are made from a worker thread by the integration.
@@ -11,9 +14,9 @@ pet never blocks: calls are made from a worker thread by the integration.
 Provider resolution order (first hit wins):
   1. pi-ai model catalog JSON next to the DSH install (full model data).
   2. ``~/.dsh/settings.yaml`` ``llm-pi-ai.providers.<id>`` block (baseURL/api).
-  3. built-in fallback registry (opencode-go).
-API keys come from ``~/.dsh/.credentials.yaml`` (``<PROVIDER>_API_KEY`` or the
-provider block's ``apiKeyEnv``).
+  3. built-in fallback registry (opencode-go, deepseek-official).
+API keys come from ``~/.dsh/.credentials.yaml`` (nesting under ``refs`` or
+flat; ``<PROVIDER>_API_KEY`` or the provider block's ``apiKeyEnv``).
 """
 
 from __future__ import annotations
@@ -49,8 +52,17 @@ DEFAULT_SETTINGS_PATH = DEFAULT_DSH_HOME / "settings.yaml"
 DEFAULT_CREDENTIALS_PATH = DEFAULT_DSH_HOME / ".credentials.yaml"
 
 # Fallback registry used when neither the pi-ai catalog nor settings describe
-# the provider. baseURL/protocol verified against the pi-ai catalog.
+# the provider. baseURL/protocol verified against the pi-ai catalog and DSH's
+# own first-party plugins (dsh-llm-deepseek registers "deepseek-official").
 BUILTIN_PROVIDERS: dict[str, dict] = {
+    "deepseek-official": {
+        "base": "https://api.deepseek.com",
+        "protocol": "openai-completions",
+        "models": [
+            "deepseek-v4-flash", "deepseek-v4-pro", "deepseek-v4-flash-vision-exp",
+        ],
+        "api_key_env": "DEEPSEEK_API_KEY",
+    },
     "opencode-go": {
         "base": "https://opencode.ai/zen/go/v1",
         "protocol": "openai-completions",
@@ -64,8 +76,8 @@ BUILTIN_PROVIDERS: dict[str, dict] = {
 CONCLUSION_MARKERS = ("结论", "所以", "因此", "综上", "最终", "决定", "采用", "选择", "方案")
 
 SYSTEM_PROMPT = (
-    "你是一个思维链总结器。把用户给出的思考过程压缩成一句中文摘要，"
-    "保留结论和关键决策，去掉过程细节。不超过80字。直接输出摘要，不要任何前缀。"
+    "你是一个消息压缩器。把用户给出的回复内容压缩成一句中文摘要，"
+    "保留结论和关键信息，去掉过程细节。不超过80字。直接输出摘要，不要任何前缀。"
 )
 
 
@@ -140,7 +152,15 @@ def load_provider_settings(settings: dict | None = None) -> dict:
 
 def load_api_keys(credentials: dict | None = None) -> dict:
     credentials = credentials if credentials is not None else load_yaml(DEFAULT_CREDENTIALS_PATH)
-    return {str(k): str(v) for k, v in credentials.items()}
+    # DSH's newer credential format nests the key->value pairs under a "refs"
+    # namespace; older builds kept them at the top level. Accept both.
+    merged: dict = {}
+    for source in (credentials, credentials.get("refs")):
+        if isinstance(source, dict):
+            merged.update(
+                {str(k): str(v) for k, v in source.items() if isinstance(v, (str, int, float))}
+            )
+    return merged
 
 
 def _catalog_lookup(provider: str) -> dict | None:

@@ -31,7 +31,7 @@ MAX_LINES = 3
 ACCENTS = {
     # waiting for the user: same orange the capsule uses
     "question": QColor(0xFF, 0x9F, 0x43),
-    # CoT summary: teal like the summary bubbles in the card
+    # reply summary: teal
     "summary": QColor(0x5F, 0xD3, 0xB0),
 }
 

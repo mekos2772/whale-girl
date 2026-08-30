@@ -67,6 +67,8 @@ class EngineFrame:
     live: LiveParameters | None = None
     drag: DragOutput | None = None
     expression: str = "neutral"
+    mouth: str = "neutral"
+    eyes_closed: bool = False
     action_id: str | None = None
     root_x: float = 0.0
     root_y: float = 0.0
@@ -179,8 +181,11 @@ class PetEngine:
         self._current_pose_set: str | None = None
         self._last_horizontal_direction: str | None = None
 
-        # Expression state.
-        self.expression = "neutral"
+        # Expression state. Mouth and eyes are independent channels so states
+        # compose (a blink keeps the smile, talking keeps the tracked gaze);
+        # ``expression`` stays as the legacy single-string view.
+        self._mouth = "neutral"
+        self._eyes_closed = False
         self.talking = False
         self._happy_until_s = 0.0
         self._next_blink_s = 1.5
@@ -701,6 +706,11 @@ class PetEngine:
 
     # ------------------------------------------------------------------ expressions
 
+    @property
+    def expression(self) -> str:
+        """Legacy single-string view (blink wins) for debug display/tests."""
+        return "blink" if self._eyes_closed else self._mouth
+
     def set_talking(self, talking: bool) -> None:
         self.talking = bool(talking)
 
@@ -717,22 +727,25 @@ class PetEngine:
             if now_s >= self._next_blink_s:
                 low, high = self.blink_interval_s
                 self._next_blink_s = now_s + random.uniform(low, high)
-            self.expression = "neutral"
+            self._mouth = "neutral"
+            self._eyes_closed = False
             return
         if self._happy_until_s and now_s >= self._happy_until_s:
             self._happy_until_s = 0.0
-        # Speaking alternates the reviewed open-mouth plate with the exact
+        # The mouth flaps between the reviewed open-mouth plate and the exact
         # neutral master. A held-open mouth reads as a frozen expression;
-        # ~6 flaps/s is clear at the 60 Hz render rate without flicker.
+        # ~6 flaps/s is clear at the 60 Hz render rate without flicker. The
+        # blink channel runs independently so a blink never erases the smile.
         if self.talking:
-            base = "talk" if int(now_s * 12.0) % 2 == 0 else "neutral"
+            mouth = "talk" if int(now_s * 12.0) % 2 == 0 else "neutral"
         else:
-            base = "happy" if self._happy_until_s else "neutral"
+            mouth = "happy" if self._happy_until_s else "neutral"
         if now_s >= self._next_blink_s:
             self._blink_until_s = now_s + BLINK_DURATION_S
             low, high = self.blink_interval_s
             self._next_blink_s = now_s + random.uniform(low, high)
-        self.expression = "blink" if now_s < self._blink_until_s else base
+        self._mouth = mouth
+        self._eyes_closed = now_s < self._blink_until_s
 
     # ------------------------------------------------------------------ tick
 
@@ -877,6 +890,8 @@ class PetEngine:
             live=live,
             drag=self.last_drag,
             expression=self.expression,
+            mouth=self._mouth,
+            eyes_closed=self._eyes_closed,
             action_id=self.player.action.id if self.player.action else None,
             root_x=self.root_x,
             root_y=self.root_y,

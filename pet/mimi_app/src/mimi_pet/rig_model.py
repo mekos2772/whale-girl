@@ -37,6 +37,22 @@ class EyeTrackingSpec:
 
 
 @dataclass(frozen=True)
+class ExpressionPatches:
+    """Region overlays that let expression states COMPOSE on a flat rig.
+
+    The whole-master swap forces one winner per tick (a random blink erased an
+    active smile; only "neutral" got the tracked irises). With patches the
+    renderer draws the tracked neutral base, then the closed-eyelid patch and
+    finally the mouth patch, so blink+smile/talk coexist and the eyes never
+    snap between states.
+    """
+
+    mouth_happy: Path
+    mouth_talk: Path
+    lids_blink: Path
+
+
+@dataclass(frozen=True)
 class RigModel:
     name: str
     canvas: tuple[int, int]
@@ -44,6 +60,7 @@ class RigModel:
     expressions: dict[str, str]
     parameters: dict[str, dict[str, float]] = field(default_factory=dict)
     eye_tracking: EyeTrackingSpec | None = None
+    expression_patches: ExpressionPatches | None = None
 
     def layer(self, name: str) -> RigLayer:
         for layer in self.layers:
@@ -112,6 +129,20 @@ def load_rig_model(model_path: Path) -> RigModel:
             source_parameters=source_parameters,  # type: ignore[arg-type]
             supported_expressions=tuple(raw_eye.get("supported_expressions", ("neutral",))),
         )
+    expression_patches: ExpressionPatches | None = None
+    raw_patches = data.get("expression_patches")
+    if raw_patches:
+        def patch_file(key: str) -> Path:
+            path = (root / str(raw_patches[key])).resolve()
+            if not path.is_file():
+                raise FileNotFoundError(f"rig expression patch {key}: missing {path}")
+            return path
+
+        expression_patches = ExpressionPatches(
+            mouth_happy=patch_file("mouth_happy"),
+            mouth_talk=patch_file("mouth_talk"),
+            lids_blink=patch_file("lids_blink"),
+        )
     return RigModel(
         name=str(data.get("name", "Mimi rig")),
         canvas=canvas,  # type: ignore[arg-type]
@@ -119,4 +150,5 @@ def load_rig_model(model_path: Path) -> RigModel:
         expressions=expressions,
         parameters=parameters,
         eye_tracking=eye_tracking,
+        expression_patches=expression_patches,
     )
