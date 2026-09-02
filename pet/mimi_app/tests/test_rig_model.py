@@ -41,6 +41,17 @@ class RigModelTests(unittest.TestCase):
         self.assertEqual(set(self.model.expressions), {"neutral", "blink", "happy", "talk"})
         self.assertEqual(self.model.expressions["blink"], "source/master_blink_v1.png")
 
+    def test_rig_expression_patches_split_mouth_and_lids(self) -> None:
+        """Region patches exist so blink can compose with smile/talk."""
+        patches = self.model.expression_patches
+        self.assertIsNotNone(patches)
+        assert patches is not None
+        self.assertEqual(patches.lids_blink.name, "lids_blink_v1.png")
+        self.assertEqual(patches.mouth_happy.name, "mouth_happy_v1.png")
+        self.assertEqual(patches.mouth_talk.name, "mouth_talk_v1.png")
+        for path in (patches.lids_blink, patches.mouth_happy, patches.mouth_talk):
+            self.assertTrue(path.is_file(), f"missing patch file: {path}")
+
     def test_flat_v5_uses_action_local_eye_layers(self) -> None:
         tracking = self.model.eye_tracking
         self.assertIsNotNone(tracking)

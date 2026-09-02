@@ -1,0 +1,63 @@
+{
+  "name": "@milkuovo/dsh-computer-use",
+  "version": "0.2.0",
+  "description": "Codex Computer Use for DeepSeek Harness on Windows: screenshot + UI Automation tree + mouse/keyboard actions, aligned with the official 10-method Codex Computer Use tool surface. Includes a zero-dependency stdio MCP server.",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "dsh-computer-use-mcp": "./mcp-server.mjs"
+  },
+  "scripts": {
+    "test": "node scripts/logic-test.mjs && node --test test/session.test.mjs test/approval-audit.test.mjs test/duplicate-guard.test.mjs test/mcp-stdio.test.mjs test/update.test.mjs",
+    "test:integration": "node --test test/annotate.test.mjs test/cursor-return.test.mjs test/overlay-session.test.mjs test/tree-frames.test.mjs",
+    "test:e2e": "node scripts/tool-surface-e2e.mjs"
+  },
+  "files": [
+    "lib/",
+    "mcp-server.mjs",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "computer-use",
+    "cua",
+    "desktop-automation",
+    "uiautomation",
+    "accessibility",
+    "cordis",
+    "plugin",
+    "mcp"
+  ],
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/schemastery": "^3.18.1",
+    "@deepseek-ai/dsh-tools": "^0.1.0-rc.2"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mekos2772/dsh-computer-use.git"
+  },
+  "homepage": "https://github.com/mekos2772/dsh-computer-use#readme",
+  "bugs": {
+    "url": "https://github.com/mekos2772/dsh-computer-use/issues"
+  },
+  "author": "mekos2772",
+  "license": "MIT"
+}

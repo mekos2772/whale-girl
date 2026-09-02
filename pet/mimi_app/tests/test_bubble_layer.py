@@ -144,23 +144,6 @@ class IntegrationBubbleTests(unittest.TestCase):
         integration._bubble("问你：重启吗？", kind="question")  # important -> shown
         self.assertIn(("问你：重启吗？", "question"), recorder.calls)
 
-    def test_summary_result_bubbles(self) -> None:
-        integration, recorder = self._integration()
-        # Summaries only bubble after real tool work in the turn.
-        self._session_event(
-            integration,
-            {"type": "tool/call", "data": {"name": "pwsh", "arguments": "{}"}},
-        )
-        integration._last_bubble_at = -1e9  # bypass the throttle in tests
-        integration._handle_event(
-            DshEvent(
-                method="cot/result",
-                rpc_id="",
-                payload={"tag": "reason_1_1", "text": "定位到 patch 层问题"},
-            )
-        )
-        self.assertIn(("总结：定位到 patch 层问题", "summary"), recorder.calls)
-
 
 if __name__ == "__main__":
     unittest.main()

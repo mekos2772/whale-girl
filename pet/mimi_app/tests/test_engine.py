@@ -124,6 +124,24 @@ class EngineFlowTests(unittest.TestCase):
         engine.tick(1.0, 0.016, (500.0, 800.0))
         self.assertEqual(engine.expression, "blink")
 
+    def test_mouth_and_blink_are_independent_channels(self) -> None:
+        """A random blink must never erase an active smile (the legacy fight)."""
+        engine = make_engine()
+        engine.set_happy(10.0)
+        engine._next_blink_s = 0.0
+        engine._update_expression(5.0, PetState.IDLE)
+        self.assertEqual(engine._mouth, "happy")
+        self.assertTrue(engine._eyes_closed)
+        # After the 0.14 s blink the smile is still there.
+        engine._update_expression(5.3, PetState.IDLE)
+        self.assertEqual(engine._mouth, "happy")
+        self.assertFalse(engine._eyes_closed)
+        # Talking occupies the mouth channel while the eyes stay open.
+        engine.set_talking(True)
+        engine._update_expression(5.4, PetState.IDLE)
+        self.assertIn(engine._mouth, ("talk", "neutral"))
+        self.assertFalse(engine._eyes_closed)
+
     def test_drag_plays_registered_pose_loop_and_switches_sets(self) -> None:
         engine = make_engine()
         engine.place_at(500.0, 800.0)

@@ -1,0 +1,13 @@
+# dsh-computer-use bundle layer: registers the computer-use plugin row.
+# name must be the package name so Node resolves it from the profile node_modules.
+- insert:
+    - id: computer-use
+      name: '@milkuovo/dsh-computer-use'
+      config:
+        askBeforeActions: false
+        maxDepth: 8
+        maxNodes: 400
+        includeScreenshot: true
+        annotate:
+          grid: true        # 截图画编号十字准星网格；click({marker}) 按标记点选并吸附元素中心
+          lastPoint: true   # 截图画上一次动作落点的琥珀圈（自证）

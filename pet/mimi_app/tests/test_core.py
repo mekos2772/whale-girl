@@ -1,17 +1,28 @@
 from __future__ import annotations
 
+import os
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "mimi_app" / "src"))
 
 from mimi_pet.action_library import ActionLibrary  # noqa: E402
+from mimi_pet.config import load_config  # noqa: E402
 from mimi_pet.drag_controller import DragConfig, DragHybridController  # noqa: E402
 from mimi_pet.frame_player import FramePlayer  # noqa: E402
 from mimi_pet.state_machine import Event, PetState, PetStateMachine  # noqa: E402
+
+
+class ConfigTests(unittest.TestCase):
+    def test_plugin_scale_environment_scales_both_window_axes(self) -> None:
+        with mock.patch.dict(os.environ, {"MIMI_SCALE_PERCENT": "50"}):
+            config = load_config()
+        self.assertEqual(config["window"]["width"], 128)
+        self.assertEqual(config["window"]["height"], 192)
 
 
 class AssetLibraryTests(unittest.TestCase):

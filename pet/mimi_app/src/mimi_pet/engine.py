@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import math
 import random
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
 from .action_library import ActionLibrary
+from .affection import AffectionChange, AffectionStore, AffectionTracker
 from .collision import WorkArea, clamp_to_bounds, step_fall
 from .config import load_config
 from .debug_log import dbg
@@ -87,9 +89,17 @@ class EngineFrame:
 class PetEngine:
     """Combines the state machine, player, Live and drag controllers."""
 
-    def __init__(self, library: ActionLibrary, config: dict | None = None) -> None:
+    def __init__(
+        self,
+        library: ActionLibrary,
+        config: dict | None = None,
+        affection: AffectionTracker | None = None,
+        affection_store: AffectionStore | None = None,
+    ) -> None:
         config = config or load_config()
         self.library = library
+        self.affection = affection or AffectionTracker()
+        self.affection_store = affection_store
         self.states = PetStateMachine()
         self.player = FramePlayer()
         live_cfg = config["live"]
@@ -222,7 +232,50 @@ class PetEngine:
         # free placement keeps the character where it was released.
         self.free_placement = False
 
-    # ------------------------------------------------------------------ placement
+    # ------------------------------------------------------------- relationship
+
+    @property
+    def affection_score(self) -> int:
+        return self.affection.score
+
+    @property
+    def affection_level(self) -> str:
+        return self.affection.level_name
+
+    def affection_snapshot(self):
+        """Return the current relationship view without exposing the tracker."""
+        return self.affection.snapshot()
+
+    def note_affection(self, source: str, delta: int | None = None) -> AffectionChange:
+        """Record a successful interaction and apply only light visual feedback."""
+        change = self.affection.record(source, delta, now=time.time())
+        if not change.recorded:
+            return change
+        if self.affection_store is not None:
+            self.affection_store.save(self.affection)
+        # Every successful interaction gets the existing smile channel.  A
+        # stage transition may add a one-off bubble only when no interaction
+        # bubble is currently occupying the channel.
+        self.set_happy(2.0 if change.applied_delta <= 1 else 3.0)
+        if change.stage_changed and self._external_bubble_until_s <= self.now_s:
+            self.set_external_bubble(
+                f"我们已经{change.level_after}啦～", 3.0
+            )
+        return change
+
+
+    def note_chat_affection(self, text: str, delta: int | None = None) -> AffectionChange:
+        """Record eligible desktop-pet chat and reuse relationship feedback."""
+        change = self.affection.record_chat(text, delta, now=time.time())
+        if not change.recorded:
+            return change
+        if self.affection_store is not None:
+            self.affection_store.save(self.affection)
+        self.set_happy(2.0 if change.applied_delta <= 1 else 3.0)
+        if change.stage_changed and self._external_bubble_until_s <= self.now_s:
+            self.set_external_bubble(f"我们已经{change.level_after}啦～", 3.0)
+        return change
+
 
     def place_at(self, root_x: float, root_y: float) -> None:
         self.root_x = float(root_x)
@@ -379,8 +432,12 @@ class PetEngine:
             self.set_happy(3.5)
             self.set_external_bubble("最喜欢你了！", 3.0)
             if self.states.state is PetState.IDLE:
-                return self.perform("celebrate")
-            return self.force_perform("celebrate")
+                succeeded = self.perform("celebrate")
+            else:
+                succeeded = self.force_perform("celebrate")
+            if succeeded:
+                self.note_affection("touch_combo")
+            return succeeded
 
         action_id = {
             "head": "head_pat",
@@ -401,6 +458,7 @@ class PetEngine:
         if self.perform(action_id):
             # A friendly touch leaves the character smiling afterwards.
             self.set_happy(1.6)
+            self.note_affection(f"touch_{region}")
             return True
         return False
 
@@ -446,6 +504,7 @@ class PetEngine:
         if action_id == "feed_bread":
             # A accepted treat leaves the character smiling afterwards.
             self.set_happy(3.0)
+            self.note_affection("feed_bread")
         return action_id
 
     def receive_drop(self) -> bool:
@@ -459,6 +518,7 @@ class PetEngine:
         if not self.perform("file_drop_receive"):
             return False
         self.set_external_bubble("收到啦！", 3.0)
+        self.note_affection("file_drop")
         return True
 
     def try_random_performance(self, now_s: float, random_value: float | None = None) -> bool:
@@ -635,6 +695,7 @@ class PetEngine:
             return self.stand_up()
         if self.force_perform("high_five"):
             self.set_happy(2.5)
+            self.note_affection("double_click")
             return True
         return False
 
@@ -655,7 +716,10 @@ class PetEngine:
         self._welcome_last_s = self.now_s
         self.set_happy(2.5)
         self.set_external_bubble("你回来啦～", 3.0)
-        return self.perform("wave")
+        succeeded = self.perform("wave")
+        if succeeded:
+            self.note_affection("welcome_back")
+        return succeeded
 
     def set_display_size(self, width: int, height: int) -> None:
         """Resize the window uniformly (window-style scaling)."""

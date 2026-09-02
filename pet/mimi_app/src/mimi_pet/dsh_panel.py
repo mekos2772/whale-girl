@@ -40,6 +40,20 @@ QLineEdit {
     padding: 3px 2px 3px 12px;
     selection-background-color: rgba(91, 141, 239, 160);
 }
+QLabel#modeBadge {
+    background: rgba(95, 134, 237, 34);
+    border: 1px solid rgba(95, 134, 237, 105);
+    border-radius: 8px;
+    color: #4d6fc9;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 6px;
+}
+QLabel#modeBadge[mode="agent"] {
+    background: rgba(95, 211, 176, 38);
+    border-color: rgba(55, 170, 137, 120);
+    color: #2f9478;
+}
 QPushButton#sendBtn {
     background: #5f86ed; border: none; border-radius: 12px;
     color: white; font-weight: 600; font-size: 12px; padding: 4px 12px;
@@ -222,6 +236,11 @@ class DshPanel(QWidget):
         row = QHBoxLayout(self._card)
         row.setContentsMargins(4, 4, 5, 4)
         row.setSpacing(4)
+        self.mode_badge = QLabel("工作模式")
+        self.mode_badge.setObjectName("modeBadge")
+        self.mode_badge.setProperty("mode", "link")
+        self.mode_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.mode_badge.setToolTip("当前：工作模式")
         self.quick_input = _QuickInput()
         self.quick_input.setPlaceholderText("输入消息…")
         send_btn = QPushButton("发送")
@@ -229,6 +248,7 @@ class DshPanel(QWidget):
         send_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         send_btn.setFixedHeight(30)
         send_btn.clicked.connect(lambda: self._quick_send(self.quick_input.text()))
+        row.addWidget(self.mode_badge)
         row.addWidget(self.quick_input, 1)
         row.addWidget(send_btn)
 
@@ -330,13 +350,26 @@ class DshPanel(QWidget):
         self.setToolTip((text or "").strip())
 
     def set_activity(self, state) -> None:
-        """Placeholder carries the only persistent state hint."""
+        """Show the current mode explicitly and keep the input hint contextual."""
         self._state = state
+        mode = getattr(state, "mode", "link") or "link"
+        mode_name = getattr(state, "mode_display_name", "") or (
+            "桌宠模式" if mode == "agent" else "工作模式"
+        )
+        self.mode_badge.setText(mode_name)
+        self.mode_badge.setProperty("mode", mode)
+        self.mode_badge.setToolTip(f"当前：{mode_name}")
+        self.mode_badge.style().unpolish(self.mode_badge)
+        self.mode_badge.style().polish(self.mode_badge)
         harness = getattr(state, "harness_display_name", "") or ""
         if getattr(state, "is_connected", False):
-            self.quick_input.setPlaceholderText(f"和 {harness or 'DSH'} 说点什么…")
+            if mode == "agent":
+                self.quick_input.setPlaceholderText("和 Mimi 说点什么…")
+            else:
+                self.quick_input.setPlaceholderText(f"跟 {harness or 'DSH'} 工作…")
         else:
             self.quick_input.setPlaceholderText("未连接 DSH")
+        self.set_status(getattr(state, "full_activity", ""))
 
     # ------------------------------------------------------------ sink protocol
 
@@ -363,6 +396,13 @@ class DshPanel(QWidget):
         self._relayout()
         self.show_box()
         self.raise_()
+
+    def replace_questions(self, questions) -> None:
+        """Replace cards after a project switch or a remote resolution."""
+        for card in list(self._questions):
+            self._drop_question(card)
+        for question in questions:
+            self.append_question(question)
 
     def _on_question_answered(self, question, selected: list[str], custom: str) -> None:
         self._answer(question, selected, custom)

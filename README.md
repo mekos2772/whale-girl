@@ -4,12 +4,8 @@
 
 - npm：<https://www.npmjs.com/package/mimi-desktop-pet>
 - GitHub：<https://github.com/mekos2772/whale-girl>
-- 当前版本：`0.4.0`
+- 当前版本：`0.6.0`
 - 已验证 DSH：`0.1.1-rc.2`（同时兼容现有 `0.1.0-rc.6` 协议面）
-
-[![Mimi Desktop Pet 0.4.0 宣传片](media/mimi-promo-0.4.0-poster.png)](media/mimi-promo-0.4.0.mp4)
-
-点击海报播放 34 秒宣传片。
 
 ## 安装
 
@@ -24,23 +20,29 @@ npm install -g pnpm
 
 ```bash
 # dsh web 使用 web profile
-dsh plugin --profile web add mimi-desktop-pet@0.4.0
+dsh plugin --profile web add mimi-desktop-pet@0.6.0
 
 # 若使用单独的 desktop profile
-dsh plugin --profile desktop add mimi-desktop-pet@0.4.0
+dsh plugin --profile desktop add mimi-desktop-pet@0.6.0
 ```
 
 若 npm 镜像尚未同步，可直接从 GitHub 标签安装：
 
 ```bash
-dsh plugin --profile web add github:mekos2772/whale-girl#v0.4.0
+dsh plugin --profile web add github:mekos2772/whale-girl#v0.6.0
 ```
 
 重启 DSH 后生效。DSH 会自动把声明了 `dsh.bundle.patch` 的包加入 profile；无需手工修改 `cordis.patch.yml`。
 
-> DSH 仍处于 developer preview，RC 版本可能发生不兼容变化。Mimi 0.4.0 已实测 `session.list`、`session.prompt`、`settings.*`、`/api/events.mux` 与插件生命周期。
+> DSH 仍处于 developer preview，RC 版本可能发生不兼容变化。Mimi 0.6.0 已实测 `session.list`、`session.prompt`、`settings.*`、`/api/events.mux`、工具注册与插件生命周期。
 
-## 0.4.0 有什么
+## 0.6.0 有什么
+
+- 内置 Computer Use 0.2.0：窗口截图 + UI Automation 树，支持观察、点击、控件操作、填写、选择文字、滚动、拖动、按键和输入，不需要再单独安装。
+- 强制“观察 → 动作 → 验证”闭环：每次动作后旧快照立即失效，避免拿旧坐标或旧控件索引连续误操作。
+- 多窗口绑定：支持进程名、标题、PID 与 HWND；同一浏览器的多个窗口不会在连续操作中串窗。
+- Mimi 气泡会显示“观察界面 / 点击 / 输入 / 滚动”等中文动作和目标应用，不显示输入的隐私文本。
+- 好感度系统：桌宠模式会分析正向问候、感谢、关心和陪伴等聊天内容，小幅提升关系阶段；90 秒冷却、每日 3 点额度和同文指纹防止刷分。工作模式、工具调用和任务结果不会改变好感度。
 
 - 23 套经过筛选的核心完整帧动作；移除 57 套旧库中重复、低密度或视觉不一致的动作。
 - Live Rig v5：呼吸、眨眼、微笑、张嘴、独立虹膜视线追踪，角色与正式动作使用同一母版。
@@ -74,6 +76,10 @@ DSH 设置中的命名空间为 `mimiPet`：
 | `petDir` | 可选的本地完整项目目录；留空时优先使用包内 `pet/` |
 | `python` | `pythonw.exe` 完整路径；留空自动探测 Python 3.11 |
 | `scale` | 桌宠缩放百分比，范围 1–200 |
+| `computerUseEnabled` | 是否启用 Windows 界面操作，默认 `true` |
+| `computerUseAskBeforeActions` | 是否每个界面动作都请求 DSH 批准，默认 `false` |
+| `computerUseScreenshot` | 观察时是否附带窗口截图，默认 `true` |
+| `computerUseGrid` | 是否在截图显示编号点选标记，默认 `true` |
 
 ## 环境与体积
 
@@ -89,7 +95,7 @@ $env:PYTHONPATH = (Resolve-Path .\mimi_app\src).Path
 python -m pytest .\mimi_app\tests -q
 
 python .\scripts\build_dsh_package.py
-dsh plugin --profile web add .\mimi-desktop-pet-0.4.0.tgz
+dsh plugin --profile web add .\mimi-desktop-pet-0.6.0.tgz
 dsh web --dump-config
 ```
 

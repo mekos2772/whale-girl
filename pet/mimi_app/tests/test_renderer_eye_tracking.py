@@ -66,9 +66,50 @@ class ActionMatchedRigRendererTests(unittest.TestCase):
         rest = self.renderer.render(self.neutral).toImage()
         gaze = self.renderer.render(replace(self.neutral, head_x=9.0)).toImage()
         self.assertNotEqual(gaze, rest)
-        for expression in ("blink", "happy", "talk"):
-            rendered = self.renderer.render(replace(self.neutral, expression=expression)).toImage()
-            self.assertNotEqual(rendered, rest, expression)
+        for mouth in ("happy", "talk"):
+            rendered = self.renderer.render(replace(self.neutral, mouth=mouth)).toImage()
+            self.assertNotEqual(rendered, rest, mouth)
+        blinked = self.renderer.render(replace(self.neutral, eyes_closed=True)).toImage()
+        self.assertNotEqual(blinked, rest)
+
+    def test_mouth_states_never_move_the_tracked_eyes(self) -> None:
+        """Root fix: the iris composite runs under every mouth state, so
+        switching expressions no longer snaps the eyes (the 6 Hz talk flap
+        used to jump the gaze between tracked and rest position)."""
+        eye_box = (150, 462, 360, 515)  # display px of master rows ~925-1030
+        mouth_box = (150, 551, 360, 570)  # display px of master rows ~1102-1140
+
+        def band(image, box):
+            return [
+                image.pixelColor(x, y).rgba()
+                for y in range(box[1], box[3])
+                for x in range(box[0], box[2])
+            ]
+
+        for mouth in ("happy", "talk"):
+            base = self.renderer.render(replace(self.neutral, head_x=9.0)).toImage()
+            mouthed = self.renderer.render(
+                replace(self.neutral, mouth=mouth, head_x=9.0)
+            ).toImage()
+            self.assertEqual(band(base, eye_box), band(mouthed, eye_box), mouth)
+            self.assertNotEqual(band(base, mouth_box), band(mouthed, mouth_box), mouth)
+
+    def test_blink_composes_with_the_smile(self) -> None:
+        """Root fix: a random blink keeps the active smile instead of showing
+        the neutral-mouthed whole-swap blink plate."""
+        happy = self.renderer.render(replace(self.neutral, mouth="happy")).toImage()
+        plain_blink = self.renderer.render(replace(self.neutral, eyes_closed=True)).toImage()
+        blink_happy = self.renderer.render(
+            replace(self.neutral, mouth="happy", eyes_closed=True)
+        ).toImage()
+        self.assertNotEqual(blink_happy, happy)  # the eyes did close
+        self.assertNotEqual(blink_happy, plain_blink)  # and the smile survived
+        # The composed smile mouth equals the plain smile's mouth band.
+        mouth_box = (150, 551, 360, 570)
+        self.assertEqual(
+            [blink_happy.pixelColor(x, y).rgba() for y in range(mouth_box[1], mouth_box[3]) for x in range(mouth_box[0], mouth_box[2])],
+            [happy.pixelColor(x, y).rgba() for y in range(mouth_box[1], mouth_box[3]) for x in range(mouth_box[0], mouth_box[2])],
+        )
 
     def test_breathing_changes_plate_without_moving_ground_registration(self) -> None:
         rest = self.renderer.render(self.neutral).toImage()

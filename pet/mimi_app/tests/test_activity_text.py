@@ -110,6 +110,19 @@ class ToolLineTests(unittest.TestCase):
             "运行 python -m unittest…",
         )
 
+    def test_computer_use_tools_are_localized_without_leaking_typed_text(self) -> None:
+        self.assertEqual(
+            tool_row_text("get_app_state", '{"app":"chrome"}'),
+            "观察界面 · chrome",
+        )
+        self.assertEqual(
+            tool_summary("click", '{"app":"chrome","marker":"D6"}'),
+            "点击 chrome · D6…",
+        )
+        typed = tool_row_text("type_text", '{"app":"notepad","text":"private message"}')
+        self.assertEqual(typed, "输入 · notepad")
+        self.assertNotIn("private", typed)
+
 
 class FormatTests(unittest.TestCase):
     def test_format_harness_activity(self) -> None:

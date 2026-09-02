@@ -54,6 +54,34 @@ class RegionReactionTests(unittest.TestCase):
         self.assertTrue(engine2.trigger_touch("foot", x_ratio=0.7))
         self.assertEqual(engine2.player.action.id, "walk_left")
 
+    def test_touch_reactions_update_affection_only_after_success(self) -> None:
+        engine = make_engine()
+        before = engine.affection_score
+        self.assertTrue(engine.trigger_touch("head"))
+        self.assertEqual(engine.affection_score, before + 1)
+        engine.player.stop()
+        engine.states.dispatch(Event.ACTION_FINISHED)
+        # Repeating too soon is rate-limited rather than farming points.
+        self.assertTrue(engine.trigger_touch("head"))
+        self.assertEqual(engine.affection_score, before + 1)
+
+    def test_head_hand_combo_has_no_duplicate_head_reward(self) -> None:
+        engine = make_engine()
+        engine.now_s = 10.0
+        self.assertTrue(engine.trigger_touch("head"))
+        engine.player.stop()
+        engine.states.dispatch(Event.ACTION_FINISHED)
+        engine.now_s = 11.5
+        self.assertTrue(engine.trigger_touch("hand"))
+        self.assertEqual(engine.affection_score, 53)
+
+    def test_rejected_foot_touch_does_not_update_affection(self) -> None:
+        engine = make_engine()
+        before = engine.affection_score
+        engine.perform("sit_down")
+        self.assertFalse(engine.trigger_touch("foot"))
+        self.assertEqual(engine.affection_score, before)
+
     def test_head_then_hand_celebrates(self) -> None:
         engine = make_engine()
         engine.place_at(500.0, 800.0)

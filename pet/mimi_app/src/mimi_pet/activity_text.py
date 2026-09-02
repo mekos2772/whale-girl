@@ -249,6 +249,16 @@ TOOL_VARIANTS = {
     "write": "write",
     "edit": "edit",
     "run_code": "code",
+    "list_apps": "computer",
+    "get_app_state": "computer",
+    "click": "computer",
+    "perform_secondary_action": "computer",
+    "set_value": "computer",
+    "select_text": "computer",
+    "scroll": "computer",
+    "drag": "computer",
+    "press_key": "computer",
+    "type_text": "computer",
 }
 VARIANT_TITLES = {
     "search": "Search",
@@ -257,6 +267,7 @@ VARIANT_TITLES = {
     "write": "Write",
     "edit": "Edit",
     "code": "Code",
+    "computer": "Computer Use",
     "others": "Tool call",
 }
 # Tool-owned titles override the variant title (same as the DSH web UI).
@@ -267,6 +278,16 @@ TOOL_TITLES = {
     "cordis_run": "Run Cordis Plugin",
     "cordis_stop": "Stop Cordis Plugin",
     "cordis_undefine": "Remove Cordis Plugin",
+    "list_apps": "查看窗口",
+    "get_app_state": "观察界面",
+    "click": "点击",
+    "perform_secondary_action": "操作控件",
+    "set_value": "填写",
+    "select_text": "选择文本",
+    "scroll": "滚动",
+    "drag": "拖动",
+    "press_key": "按键",
+    "type_text": "输入",
 }
 # Tool display title -> capsule verb ("运行 pip install…").
 TOOL_CAPSULE_VERBS = {
@@ -281,6 +302,16 @@ TOOL_CAPSULE_VERBS = {
     "Run Cordis Plugin": "运行插件",
     "Stop Cordis Plugin": "停止插件",
     "Remove Cordis Plugin": "移除插件",
+    "查看窗口": "查看",
+    "观察界面": "观察",
+    "点击": "点击",
+    "操作控件": "操作",
+    "填写": "填写",
+    "选择文本": "选择",
+    "滚动": "滚动",
+    "拖动": "拖动",
+    "按键": "按键",
+    "输入": "输入",
     "Tool call": "调用工具",
 }
 
@@ -295,7 +326,33 @@ def _tool_parts(tool: str, arguments: str = "") -> tuple[str, str]:
         args = {}
     detail = ""
     if isinstance(args, dict):
-        if args.get("file_path"):
+        if tool in {
+            "list_apps",
+            "get_app_state",
+            "click",
+            "perform_secondary_action",
+            "set_value",
+            "select_text",
+            "scroll",
+            "drag",
+            "press_key",
+            "type_text",
+        }:
+            app = str(args.get("app") or "桌面")[:14]
+            target = ""
+            if tool == "click":
+                if args.get("marker") is not None:
+                    target = str(args["marker"])
+                elif args.get("element_index") is not None:
+                    target = f"控件 {args['element_index']}"
+                elif args.get("x") is not None and args.get("y") is not None:
+                    target = f"{args['x']},{args['y']}"
+            elif tool == "press_key" and args.get("key"):
+                target = str(args["key"])[:10]
+            elif tool == "scroll" and args.get("direction"):
+                target = str(args["direction"])[:10]
+            detail = " · ".join(part for part in (app, target) if part)
+        elif args.get("file_path"):
             detail = Path(str(args["file_path"])).name
         elif args.get("command"):
             parts = re.split(r"[;&|]{1,2}", str(args["command"]))

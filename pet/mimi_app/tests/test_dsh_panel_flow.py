@@ -88,21 +88,36 @@ class DshPanelFlowTests(unittest.TestCase):
         panel.clear()
         self.assertEqual(panel._questions, [])
 
+    def test_remote_question_replacement_removes_stale_cards(self) -> None:
+        panel = self._panel()
+        first = _question("q1")
+        second = _question("q2")
+        panel.append_question(first)
+        panel.replace_questions([second])
+        self.assertEqual(len(panel._questions), 1)
+        self.assertIs(panel._questions[0]._question, second)
+
     def test_activity_sets_placeholder(self) -> None:
         panel = self._panel()
 
         class State:
             is_connected = True
             harness_display_name = "Mimi"
+            mode = "agent"
+            mode_display_name = "桌宠模式"
 
         panel.set_activity(State())
+        self.assertEqual(panel.mode_badge.text(), "桌宠模式")
         self.assertIn("Mimi", panel.quick_input.placeholderText())
 
         class Offline:
             is_connected = False
             harness_display_name = ""
+            mode = "link"
+            mode_display_name = "工作模式"
 
         panel.set_activity(Offline())
+        self.assertEqual(panel.mode_badge.text(), "工作模式")
         self.assertIn("未连接", panel.quick_input.placeholderText())
 
     def test_input_box_fixed_width(self) -> None:

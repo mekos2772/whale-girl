@@ -2,18 +2,24 @@
 
 from __future__ import annotations
 
+import json
+import queue
 import sys
+import time
+import types
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "mimi_app" / "src"))
 
-from mimi_pet.dsh_bridge import DshBridge, DshError, DshEvent  # noqa: E402
+from mimi_pet.dsh_bridge import DshBridge, DshError, DshEvent, DshEventThread  # noqa: E402
 from mimi_pet.dsh_integration import DshIntegration  # noqa: E402
 from mimi_pet.engine import PetEngine  # noqa: E402
 from mimi_pet.config import load_config  # noqa: E402
 from mimi_pet.action_library import ActionLibrary  # noqa: E402
+from mimi_pet.state_machine import PetState  # noqa: E402
 
 
 def dsh_available() -> bool:
@@ -118,8 +124,10 @@ class LiveDshTests(unittest.TestCase):
     def test_session_list_live(self) -> None:
         sessions = DshBridge().list_sessions()
         self.assertIsInstance(sessions, list)
-        if sessions:
-            self.assertTrue(all(s.session_id.startswith("session-") for s in sessions))
+        # Session ids are opaque: older DSH versions produced raw UUIDs,
+        # newer ones use the "session-" prefix. Only the id's identity
+        # matters to the pet (it never parses the prefix).
+        self.assertTrue(all(isinstance(s.session_id, str) and s.session_id for s in sessions))
 
     def test_question_answer_roundtrip_requires_live_question(self) -> None:
         # No pending question exists without an ask(); just verify the
@@ -214,6 +222,27 @@ class ProjectSelectionTests(unittest.TestCase):
         )
         self.assertEqual(integration._active_session, "s-a")
 
+    def test_missing_pinned_session_never_falls_through_to_another_project(self) -> None:
+        integration = DshIntegration(make_engine())
+        integration.select_session("s-pinned")
+        integration._apply_sessions([fake_session("s-other", running=True, title="别的任务")])
+        self.assertEqual(integration._active_session, "s-pinned")
+        self.assertFalse(integration.working)
+
+    def test_session_switch_retires_previous_stream_state(self) -> None:
+        integration = DshIntegration(make_engine())
+        integration._apply_sessions([fake_session("s-a", running=True, title="任务A")])
+        integration._text = "旧回复"
+        integration._tool_active = True
+        integration._reasoning_pending = True
+        generation = integration._view_generation
+        integration.select_session("s-b")
+        integration._apply_sessions([fake_session("s-b", running=False, title="任务B")])
+        self.assertGreater(integration._view_generation, generation)
+        self.assertEqual(integration._text, "")
+        self.assertFalse(integration._tool_active)
+        self.assertFalse(integration._reasoning_pending)
+
     def test_session_choices_labels_project_and_title(self) -> None:
         integration = DshIntegration(make_engine())
         integration._known_sessions = [
@@ -254,6 +283,67 @@ class LinkHandoffTests(unittest.TestCase):
         )
         self.assertFalse(integration.connected)
 
+    def test_disconnect_retires_live_state_and_never_reports_connected(self) -> None:
+        integration = DshIntegration(make_engine())
+        integration.connected = True
+        integration._active_session = "s"
+        integration.working = True
+        integration._tool_active = True
+        integration._reasoning_pending = True
+        integration._handle_event(
+            DshEvent(method="__link", rpc_id="", payload={"connected": False})
+        )
+        self.assertFalse(integration.working)
+        self.assertFalse(integration._tool_active)
+        self.assertFalse(integration._reasoning_pending)
+        self.assertFalse(integration.activity.is_connected)
+
+
+class EventThreadLifecycleTests(unittest.TestCase):
+    def test_reader_emits_link_transitions_and_decodes_one_frame(self) -> None:
+        events = queue.Queue()
+        transitions: list[str] = []
+        reader = DshEventThread(
+            events=events,
+            on_connect=lambda: transitions.append("up"),
+            on_disconnect=lambda: transitions.append("down"),
+        )
+
+        class FakeSocket:
+            def __init__(self) -> None:
+                self.reads = 0
+                self.closed = False
+
+            def settimeout(self, value) -> None:
+                self.timeout = value
+
+            def recv(self):
+                self.reads += 1
+                if self.reads == 1:
+                    return json.dumps(
+                        {
+                            "type": "server-request",
+                            "rpcId": "rpc-1",
+                            "method": "session/event",
+                            "payload": {"sessionId": "s"},
+                        }
+                    )
+                reader._stop.set()
+                raise OSError("closed")
+
+            def close(self) -> None:
+                self.closed = True
+
+        socket = FakeSocket()
+        websocket_module = types.SimpleNamespace(create_connection=lambda *a, **kw: socket)
+        with mock.patch.dict(sys.modules, {"websocket": websocket_module}):
+            reader._run()
+
+        event = events.get_nowait()
+        self.assertEqual((event.method, event.rpc_id), ("session/event", "rpc-1"))
+        self.assertEqual(transitions, ["up", "down"])
+        self.assertTrue(socket.closed)
+
 
 class StreamingSinkTests(unittest.TestCase):
     def test_events_from_unselected_project_are_ignored(self) -> None:
@@ -281,6 +371,51 @@ class StreamingSinkTests(unittest.TestCase):
         )
         self.assertEqual(sink.rows, {})
         self.assertEqual(integration.pinned_session(), "s-a")
+
+    def test_jobs_from_unselected_project_are_ignored(self) -> None:
+        integration = DshIntegration(make_engine())
+        sink = FakeSink()
+        integration.sink = sink
+        integration.select_session("s-a")
+        integration._handle_event(
+            DshEvent(
+                method="session/jobs",
+                rpc_id="x",
+                payload={"sessionId": "s-b", "jobs": [{"status": "failed"}]},
+            )
+        )
+        self.assertEqual(sink.messages, [])
+
+    def test_late_summary_from_previous_project_is_dropped(self) -> None:
+        integration = DshIntegration(make_engine())
+        sink = FakeSink()
+        integration.sink = sink
+        integration.select_session("s-a")
+        old_generation = integration._view_generation
+        integration.select_session("s-b")
+        integration._handle_event(
+            DshEvent(
+                method="cot/result",
+                rpc_id="",
+                payload={
+                    "tag": "old",
+                    "text": "旧项目总结",
+                    "generation": old_generation,
+                    "sessionId": "s-a",
+                },
+            )
+        )
+        self.assertNotIn("old", sink.rows)
+
+    def test_event_drain_has_a_ui_budget(self) -> None:
+        integration = DshIntegration(make_engine())
+        seen = []
+        integration._handle_event = seen.append
+        for index in range(integration.MAX_EVENTS_PER_DRAIN + 20):
+            integration.event_queue.put(DshEvent(method=str(index), rpc_id="", payload={}))
+        integration.drain_events()
+        self.assertEqual(len(seen), integration.MAX_EVENTS_PER_DRAIN)
+        self.assertEqual(integration.event_queue.qsize(), 20)
 
     def test_text_delta_streams_into_tagged_row(self) -> None:
         engine = make_engine()
@@ -317,6 +452,28 @@ class StreamingSinkTests(unittest.TestCase):
             )
         )
         self.assertFalse(engine.talking)
+
+    def test_live_turn_events_update_working_without_waiting_for_poll(self) -> None:
+        integration = DshIntegration(make_engine())
+        integration._handle_event(
+            DshEvent(
+                method="session/event",
+                rpc_id="x",
+                payload={
+                    "sessionId": "s",
+                    "event": {"type": "turn/start", "data": {"turn": 1, "step": 0}},
+                },
+            )
+        )
+        self.assertTrue(integration.working)
+        integration._handle_event(
+            DshEvent(
+                method="session/event",
+                rpc_id="x",
+                payload={"sessionId": "s", "event": {"type": "turn/end", "data": {}}},
+            )
+        )
+        self.assertFalse(integration.working)
 
     def test_block_start_resets_stream_row(self) -> None:
         engine = make_engine()
@@ -435,7 +592,7 @@ class StreamingSinkTests(unittest.TestCase):
             )
         )
         self.assertTrue(any(role == "info" for role, _ in sink.messages))
-        self.assertTrue(any("pwsh" in text for _, text in sink.messages))
+        self.assertTrue(any("Pwsh" in text for _, text in sink.messages))
 
     def test_poll_activity_callback(self) -> None:
         engine = make_engine()
@@ -517,23 +674,198 @@ class BubbleDuplicateTests(unittest.TestCase):
         texts = [t for _, t in sink.bubbles]
         self.assertEqual(texts.count("第一条回复"), 1)
 
-    def test_summary_bubble_gating(self) -> None:
-        integration, sink = self._integration()
-        integration._handle_event(
-            self._event("assistant/chunk", {"turn": 1, "step": 1, "chunk": {"type": "text-delta", "text": "收到喵～"}})
+
+class ReasoningFlowTests(unittest.TestCase):
+    """Reasoning chunks drive the thinking state; sink rows stay emoji-free."""
+
+    @staticmethod
+    def _chunk(turn, step, chunk):
+        return DshEvent(
+            method="session/event",
+            rpc_id="x",
+            payload={
+                "sessionId": "s",
+                "event": {
+                    "type": "assistant/chunk",
+                    "data": {"turn": turn, "step": step, "chunk": chunk},
+                },
+            },
         )
-        integration._handle_event(self._event("assistant/message", {}))
-        integration._last_bubble_at = -1e9  # bypass the 1.2 s throttle
-        # Pure-chat turn + summary restating the reply -> no bubble.
+
+    def test_tool_call_folds_into_single_row(self) -> None:
+        class Sink:
+            def __init__(self):
+                self.rows = {}
+
+            def set_row(self, tag, role, text):
+                self.rows[tag] = (role, text)
+
+        integration = DshIntegration(make_engine())
+        sink = Sink()
+        integration.sink = sink
         integration._handle_event(
-            DshEvent(method="cot/result", rpc_id="", payload={"tag": "r1", "text": "收到喵～"})
+            DshEvent(method="session/event", rpc_id="x", payload={"sessionId": "s", "event": {"type": "tool/call", "data": {"name": "pwsh"}}})
         )
-        self.assertNotIn(("summary", "总结：收到喵～"), sink.bubbles)
-        # A tool turn with a genuinely informative summary still bubbles.
-        integration._handle_event(self._event("user/message", {}))
-        integration._handle_event(self._event("tool/call", {"name": "pwsh", "arguments": "{}"}))
-        integration._last_bubble_at = -1e9
+        self.assertEqual(sink.rows.get("tool_active"), ("tool", "Pwsh"))
         integration._handle_event(
-            DshEvent(method="cot/result", rpc_id="", payload={"tag": "r2", "text": "检查了磁盘并清理了临时文件"})
+            DshEvent(method="session/event", rpc_id="x", payload={"sessionId": "s", "event": {"type": "tool/result", "data": {}}})
         )
-        self.assertIn(("summary", "总结：检查了磁盘并清理了临时文件"), sink.bubbles)
+        self.assertEqual(sink.rows.get("tool_active"), ("progress", "完成"))
+
+    def test_no_emoji_in_panel_texts(self) -> None:
+        class Sink:
+            def __init__(self):
+                self.rows = {}
+                self.messages = []
+                self.progress = []
+
+            def set_row(self, tag, role, text):
+                self.rows[tag] = (role, text)
+
+            def append_message(self, role, text):
+                self.messages.append(text)
+
+            def upsert_progress(self, text):
+                self.progress.append(text)
+
+        integration = DshIntegration(make_engine())
+        sink = Sink()
+        integration.sink = sink
+        integration._handle_event(self._chunk(1, 1, {"type": "block-start", "blockType": "reasoning"}))
+        integration._handle_event(
+            self._chunk(1, 1, {"type": "reasoning-delta", "text": "思考" * 40})
+        )
+        integration._handle_event(self._chunk(1, 1, {"type": "block-end", "block": {"type": "reasoning", "text": "思考" * 40}}))
+        integration._handle_event(self._chunk(1, 1, {"type": "block-start", "blockType": "text"}))
+        integration._handle_event(self._chunk(1, 1, {"type": "text-delta", "text": "好的"}))
+        integration._handle_event(
+            DshEvent(method="session/event", rpc_id="x", payload={"sessionId": "s", "event": {"type": "tool/call", "data": {"name": "pwsh"}}})
+        )
+        integration.drain_events()
+        emoji = "🧠🤖🔧⏳✔✖🔐✅⚠️❓ℹ️🚫📡💬"
+        for role, text in sink.rows.values():
+            self.assertFalse(any(c in text for c in emoji), text)
+            self.assertFalse(any(c in role for c in emoji), role)
+        for text in sink.messages + sink.progress:
+            self.assertFalse(any(c in text for c in emoji), text)
+
+
+class HarnessAnimationTests(unittest.TestCase):
+    """Dynamic switching of harness actions based on DSH activity."""
+
+    @staticmethod
+    def _chunk(turn, step, chunk):
+        return DshEvent(
+            method="session/event",
+            rpc_id="x",
+            payload={
+                "sessionId": "s",
+                "event": {
+                    "type": "assistant/chunk",
+                    "data": {"turn": turn, "step": step, "chunk": chunk},
+                },
+            },
+        )
+
+    @staticmethod
+    def _session_event(event_type, data):
+        return DshEvent(
+            method="session/event",
+            rpc_id="x",
+            payload={"sessionId": "s", "event": {"type": event_type, "data": data}},
+        )
+
+    def _make(self):
+        engine = make_engine()
+        integration = DshIntegration(engine)
+        return engine, integration
+
+    def test_reasoning_starts_thinking_animation(self) -> None:
+        engine, integration = self._make()
+        integration._handle_event(self._chunk(1, 1, {"type": "block-start", "blockType": "reasoning"}))
+        self.assertEqual(integration._dsh_anim, "thinking")
+        self.assertIs(engine.states.state, PetState.PERFORMING)
+
+    def test_reasoning_block_end_retires_thinking_state(self) -> None:
+        engine, integration = self._make()
+        integration._handle_event(self._chunk(1, 1, {"type": "block-start", "blockType": "reasoning"}))
+        integration._handle_event(
+            self._chunk(1, 1, {"type": "reasoning-delta", "text": "思考" * 40})
+        )
+        self.assertTrue(integration._reasoning_pending)
+        integration._handle_event(
+            self._chunk(1, 1, {"type": "block-end", "block": {"type": "reasoning", "text": "思考" * 40}})
+        )
+        self.assertFalse(integration._reasoning_pending)
+        self.assertEqual(integration._reasoning, "")
+        self.assertIsNone(integration._reasoning_tag)
+
+    def test_tool_call_switches_away_from_thinking(self) -> None:
+        engine, integration = self._make()
+        integration._handle_event(self._chunk(1, 1, {"type": "block-start", "blockType": "reasoning"}))
+        self.assertEqual(integration._dsh_anim, "thinking")
+        integration._handle_event(self._session_event("tool/call", {"name": "pwsh"}))
+        self.assertEqual(integration._dsh_anim, "tool")
+        self.assertTrue(integration._tool_active)
+        self.assertIs(engine.states.state, PetState.PERFORMING)
+        integration._handle_event(self._session_event("tool/result", {}))
+        self.assertIsNone(integration._dsh_anim)
+        self.assertFalse(integration._tool_active)
+        self.assertIs(engine.states.state, PetState.IDLE)
+
+    def test_text_delta_stops_animation(self) -> None:
+        engine, integration = self._make()
+        integration._handle_event(self._chunk(1, 1, {"type": "block-start", "blockType": "reasoning"}))
+        self.assertEqual(integration._dsh_anim, "thinking")
+        integration._handle_event(self._chunk(1, 1, {"type": "text-delta", "text": "好的"}))
+        self.assertIsNone(integration._dsh_anim)
+        self.assertIs(engine.states.state, PetState.IDLE)
+
+    def test_harness_does_not_interrupt_direct_user_action(self) -> None:
+        engine, integration = self._make()
+        self.assertTrue(engine.trigger_touch("head"))
+        self.assertEqual(engine.player.action.id, "head_pat")
+        integration._handle_event(
+            self._chunk(1, 1, {"type": "block-start", "blockType": "reasoning"})
+        )
+        self.assertEqual(integration._dsh_anim, "thinking")
+        self.assertEqual(engine.player.action.id, "head_pat")
+
+    def test_done_cancels_work_animation_then_celebrates(self) -> None:
+        engine, integration = self._make()
+        integration._handle_event(
+            self._chunk(1, 1, {"type": "block-start", "blockType": "reasoning"})
+        )
+        integration._on_done()
+        self.assertIsNone(integration._dsh_anim)
+        self.assertIs(engine.states.state, PetState.PERFORMING)
+        self.assertEqual(engine.player.action.id, "celebrate")
+
+    def test_maintain_anim_replays_with_gap_while_condition_holds(self) -> None:
+        engine, integration = self._make()
+        integration._handle_event(self._chunk(1, 1, {"type": "block-start", "blockType": "reasoning"}))
+        # Let the current performance run to completion.
+        now = time.time()
+        for _ in range(600):
+            engine.tick(now, 0.02, (0.0, 0.0), None, None)
+            if engine.states.state is PetState.IDLE:
+                break
+        self.assertIs(engine.states.state, PetState.IDLE)
+        # Throttled: an immediate replay is suppressed so the pet rests in its
+        # natural idle sway between work cycles.
+        integration.maintain_anim()
+        self.assertIs(engine.states.state, PetState.IDLE)
+        # Once the replay gap has passed the work animation replays (condition
+        # still holds: reasoning pending).
+        integration._anim_last_replay = time.perf_counter() - (integration.REPLAY_GAP_S + 1.0)
+        integration.maintain_anim()
+        self.assertIs(engine.states.state, PetState.PERFORMING)
+        # Reasoning finished -> no replay.
+        integration._reasoning_pending = False
+        for _ in range(600):
+            engine.tick(now, 0.02, (0.0, 0.0), None, None)
+            if engine.states.state is PetState.IDLE:
+                break
+        integration._anim_last_replay = time.perf_counter() - (integration.REPLAY_GAP_S + 1.0)
+        integration.maintain_anim()
+        self.assertIs(engine.states.state, PetState.IDLE)

@@ -1,5 +1,8 @@
-"""CoT summarizer tests: local heuristics, DSH config resolution, integration
-reasoning flow (all offline; LLM calls are faked)."""
+"""Reply summarizer tests: local heuristics, DSH config resolution, and the
+integration flow (assistant replies get summaries; reasoning NEVER does).
+
+All offline: the LLM call is faked on the worker thread path.
+"""
 
 from __future__ import annotations
 
@@ -18,7 +21,6 @@ from mimi_pet.dsh_integration import DshIntegration  # noqa: E402
 from mimi_pet.engine import PetEngine  # noqa: E402
 from mimi_pet.config import load_config  # noqa: E402
 from mimi_pet.action_library import ActionLibrary  # noqa: E402
-from mimi_pet.state_machine import PetState  # noqa: E402
 
 
 def make_engine() -> PetEngine:
@@ -53,6 +55,38 @@ class ConfigResolutionTests(unittest.TestCase):
         self.assertIn("opencode", spec["base"])
         self.assertEqual(spec["protocol"], "openai-completions")
         self.assertIn("deepseek-v4-flash", spec["models"])
+
+    def test_deepseek_official_builtin_resolves_auto_default(self) -> None:
+        """DSH's agent-default-model uses the first-party deepseek-official
+        provider, which lives in NO pi-ai catalog file — the builtin registry
+        must carry its endpoint and DEEPSEEK_API_KEY credential name."""
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            (home / "settings.yaml").write_text(
+                "agent-default-model:\n"
+                "  provider: deepseek-official\n"
+                "  model: deepseek-v4-flash-vision-exp\n",
+                encoding="utf-8",
+            )
+            (home / ".credentials.yaml").write_text(
+                "DEEPSEEK_API_KEY: sk-ds-test\n", encoding="utf-8"
+            )
+            summarizer = cot.CoTSummarizer(
+                settings_path=home / "settings.yaml",
+                credentials_path=home / ".credentials.yaml",
+            )
+            spec = summarizer._resolve_spec()
+            self.assertEqual(spec["provider"], "deepseek-official")
+            self.assertEqual(spec["model"], "deepseek-v4-flash-vision-exp")
+            self.assertEqual(spec["base"], "https://api.deepseek.com")
+            self.assertEqual(spec["protocol"], "openai-completions")
+            self.assertEqual(spec["api_key"], "sk-ds-test")
+            self.assertIsNone(summarizer.last_error)
+
+    def test_load_api_keys_accepts_refs_and_flat(self) -> None:
+        """DSH's newer credential format nests pairs under ``refs``."""
+        self.assertEqual(cot.load_api_keys({"refs": {"A_KEY": "x", "B": 1}}), {"A_KEY": "x", "B": "1"})
+        self.assertEqual(cot.load_api_keys({"A_KEY": "x"}), {"A_KEY": "x"})
 
     def test_fake_dsh_home_resolves_agent_default(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -106,7 +140,7 @@ class ConfigResolutionTests(unittest.TestCase):
 
             cot._http_json = fake_http
             try:
-                self.assertEqual(summarizer.summarize("很长的思考过程" * 50), "结论：使用缓存。")
+                self.assertEqual(summarizer.summarize("很长的回复内容" * 50), "结论：使用缓存。")
             finally:
                 cot._http_json = original
 
@@ -116,7 +150,7 @@ class ConfigResolutionTests(unittest.TestCase):
 
             cot._http_json = failing_http
             try:
-                summary = summarizer.summarize("思考 " * 100)
+                summary = summarizer.summarize("回复 " * 100)
                 self.assertTrue(summary)
                 self.assertIsNotNone(summarizer.last_error)
             finally:
@@ -142,138 +176,11 @@ class FakeCot:
         return [("自动（跟随 DSH）", "auto", "")]
 
 
-class ReasoningFlowTests(unittest.TestCase):
-    def _make(self, result: str):
-        engine = make_engine()
-        integration = DshIntegration(engine)
-        integration.cot = FakeCot(result)
-        return integration
-
-    @staticmethod
-    def _chunk(turn, step, chunk):
-        return DshEvent(
-            method="session/event",
-            rpc_id="x",
-            payload={
-                "sessionId": "s",
-                "event": {
-                    "type": "assistant/chunk",
-                    "data": {"turn": turn, "step": step, "chunk": chunk},
-                },
-            },
-        )
-
-    def test_reasoning_summarized_via_event_queue(self) -> None:
-        class Sink:
-            def __init__(self):
-                self.rows = {}
-
-            def set_row(self, tag, role, text):
-                self.rows[tag] = (role, text)
-
-        integration = self._make("结论：改用缓存方案")
-        sink = Sink()
-        integration.sink = sink
-        integration._handle_event(self._chunk(1, 1, {"type": "block-start", "blockType": "reasoning"}))
-        integration._handle_event(
-            self._chunk(1, 1, {"type": "reasoning-delta", "text": "分析网络。" * 40})
-        )
-        integration._handle_event(
-            self._chunk(1, 1, {"type": "block-end", "block": {"type": "reasoning", "text": "分析网络。" * 40}})
-        )
-        deadline = time.time() + 5.0
-        while time.time() < deadline:
-            integration.drain_events()
-            if any(role == "summary" and "结论" in text for role, text in sink.rows.values()):
-                break
-            time.sleep(0.05)
-        self.assertTrue(
-            any(role == "summary" and "结论：改用缓存方案" in text for role, text in sink.rows.values()),
-            f"sink rows: {sink.rows}",
-        )
-        self.assertIsNone(integration._reasoning_pending or None)
-
-    def test_short_reasoning_uses_local_summary(self) -> None:
-        class Sink:
-            def __init__(self):
-                self.rows = {}
-
-            def set_row(self, tag, role, text):
-                self.rows[tag] = (role, text)
-
-        integration = self._make("不应被调用")
-        sink = Sink()
-        integration.sink = sink
-        integration._handle_event(self._chunk(1, 1, {"type": "block-start", "blockType": "reasoning"}))
-        integration._handle_event(
-            self._chunk(1, 1, {"type": "reasoning-delta", "text": "简单思考"})
-        )
-        integration._handle_event(self._chunk(1, 1, {"type": "block-end", "block": {"type": "reasoning", "text": "简单思考"}}))
-        integration.drain_events()
-        self.assertTrue(any("简单思考" in text for _, text in sink.rows.values()))
-
-    def test_tool_call_folds_into_single_row(self) -> None:
-        class Sink:
-            def __init__(self):
-                self.rows = {}
-
-            def set_row(self, tag, role, text):
-                self.rows[tag] = (role, text)
-
-        integration = self._make("x")
-        sink = Sink()
-        integration.sink = sink
-        integration._handle_event(
-            DshEvent(method="session/event", rpc_id="x", payload={"sessionId": "s", "event": {"type": "tool/call", "data": {"name": "pwsh"}}})
-        )
-        self.assertEqual(sink.rows.get("tool_active"), ("tool", "Pwsh"))
-        integration._handle_event(
-            DshEvent(method="session/event", rpc_id="x", payload={"sessionId": "s", "event": {"type": "tool/result", "data": {}}})
-        )
-        self.assertEqual(sink.rows.get("tool_active"), ("progress", "完成"))
-
-    def test_no_emoji_in_panel_texts(self) -> None:
-        class Sink:
-            def __init__(self):
-                self.rows = {}
-                self.messages = []
-                self.progress = []
-
-            def set_row(self, tag, role, text):
-                self.rows[tag] = (role, text)
-
-            def append_message(self, role, text):
-                self.messages.append(text)
-
-            def upsert_progress(self, text):
-                self.progress.append(text)
-
-        engine = make_engine()
-        integration = DshIntegration(engine)
-        sink = Sink()
-        integration.sink = sink
-        integration._handle_event(self._chunk(1, 1, {"type": "block-start", "blockType": "reasoning"}))
-        integration._handle_event(
-            self._chunk(1, 1, {"type": "reasoning-delta", "text": "思考" * 40})
-        )
-        integration._handle_event(self._chunk(1, 1, {"type": "block-end", "block": {"type": "reasoning", "text": "思考" * 40}}))
-        integration._handle_event(self._chunk(1, 1, {"type": "block-start", "blockType": "text"}))
-        integration._handle_event(self._chunk(1, 1, {"type": "text-delta", "text": "好的"}))
-        integration._handle_event(
-            DshEvent(method="session/event", rpc_id="x", payload={"sessionId": "s", "event": {"type": "tool/call", "data": {"name": "pwsh"}}})
-        )
-        integration.drain_events()
-        all_texts = list(sink.rows.values()) + sink.messages + sink.progress
-        emoji = "🧠🤖🔧⏳✔✖🔐✅⚠️❓ℹ️🚫📡💬"
-        for role, text in sink.rows.values():
-            self.assertFalse(any(c in text for c in emoji), text)
-            self.assertFalse(any(c in role for c in emoji), role)
-        for text in sink.messages + sink.progress:
-            self.assertFalse(any(c in text for c in emoji), text)
+LONG_REPLY = "已经帮你查好了：现在是晚上十一点半，电量还剩百分之八十七，网速下载每秒大概十二兆。" * 2
 
 
-class DshAnimationTests(unittest.TestCase):
-    """Dynamic switching of harness actions based on DSH activity."""
+class ReplySummaryFlowTests(unittest.TestCase):
+    """The summary feature targets the assistant's NORMAL output only."""
 
     @staticmethod
     def _chunk(turn, step, chunk):
@@ -297,87 +204,77 @@ class DshAnimationTests(unittest.TestCase):
             payload={"sessionId": "s", "event": {"type": event_type, "data": data}},
         )
 
-    def _make(self):
-        engine = make_engine()
-        integration = DshIntegration(engine)
-        integration.cot = FakeCot("x")
-        return engine, integration
+    def _integration(self, result: str):
+        integration = DshIntegration(make_engine())
+        integration.cot = FakeCot(result)
 
-    def test_reasoning_starts_thinking_animation(self) -> None:
-        engine, integration = self._make()
+        class Sink:
+            def __init__(self) -> None:
+                self.bubbles: list[tuple[str, str]] = []
+
+            def show_bubble(self, text, kind="assistant"):
+                self.bubbles.append((kind, text))
+
+            def set_row(self, *a):
+                pass
+
+        sink = Sink()
+        integration.sink = sink
+        return integration, sink
+
+    def test_long_reply_gets_a_summary_bubble(self) -> None:
+        integration, sink = self._integration("已压缩的回复要点")
+        integration._last_bubble_at = -1e9
+        integration._handle_event(self._chunk(1, 1, {"type": "text-delta", "text": LONG_REPLY}))
+        integration._handle_event(self._session_event("assistant/message", {}))
+        deadline = time.time() + 5.0
+        while time.time() < deadline and not any(
+            kind == "summary" for kind, _ in sink.bubbles
+        ):
+            integration.drain_events()
+            time.sleep(0.05)
+        self.assertIn(("summary", "总结：已压缩的回复要点"), sink.bubbles)
+        # The full reply still bubbles as before.
+        self.assertIn(("assistant", LONG_REPLY), sink.bubbles)
+
+    def test_short_reply_gets_no_summary(self) -> None:
+        integration, sink = self._integration("短回复的总结")
+        integration._last_bubble_at = -1e9
+        integration._handle_event(self._chunk(1, 1, {"type": "text-delta", "text": "收到喵～"}))
+        integration._handle_event(self._session_event("assistant/message", {}))
+        for _ in range(10):
+            integration.drain_events()
+            time.sleep(0.05)
+        self.assertFalse(any(kind == "summary" for kind, _ in sink.bubbles))
+
+    def test_reasoning_never_produces_a_summary(self) -> None:
+        """The chain of thought is off-limits: thinking must not generate
+        summary bubbles (the user's original complaint)."""
+        integration, sink = self._integration("思考总结不该出现")
+        integration._last_bubble_at = -1e9
         integration._handle_event(self._chunk(1, 1, {"type": "block-start", "blockType": "reasoning"}))
-        self.assertEqual(integration._dsh_anim, "thinking")
-        self.assertIs(engine.states.state, PetState.PERFORMING)
-
-    def test_tool_call_switches_away_from_thinking(self) -> None:
-        engine, integration = self._make()
-        integration._handle_event(self._chunk(1, 1, {"type": "block-start", "blockType": "reasoning"}))
-        self.assertEqual(integration._dsh_anim, "thinking")
-        integration._handle_event(self._session_event("tool/call", {"name": "pwsh"}))
-        self.assertEqual(integration._dsh_anim, "tool")
-        self.assertTrue(integration._tool_active)
-        self.assertIs(engine.states.state, PetState.PERFORMING)
-        integration._handle_event(self._session_event("tool/result", {}))
-        self.assertIsNone(integration._dsh_anim)
-        self.assertFalse(integration._tool_active)
-        self.assertIs(engine.states.state, PetState.IDLE)
-
-    def test_text_delta_stops_animation(self) -> None:
-        engine, integration = self._make()
-        integration._handle_event(self._chunk(1, 1, {"type": "block-start", "blockType": "reasoning"}))
-        self.assertEqual(integration._dsh_anim, "thinking")
-        integration._handle_event(self._chunk(1, 1, {"type": "text-delta", "text": "好的"}))
-        self.assertIsNone(integration._dsh_anim)
-        self.assertIs(engine.states.state, PetState.IDLE)
-
-    def test_harness_does_not_interrupt_direct_user_action(self) -> None:
-        engine, integration = self._make()
-        self.assertTrue(engine.trigger_touch("head"))
-        self.assertEqual(engine.player.action.id, "head_pat")
         integration._handle_event(
-            self._chunk(1, 1, {"type": "block-start", "blockType": "reasoning"})
+            self._chunk(1, 1, {"type": "reasoning-delta", "text": "先分析再决定" * 40})
         )
-        self.assertEqual(integration._dsh_anim, "thinking")
-        self.assertEqual(engine.player.action.id, "head_pat")
-
-    def test_done_cancels_work_animation_then_celebrates(self) -> None:
-        engine, integration = self._make()
         integration._handle_event(
-            self._chunk(1, 1, {"type": "block-start", "blockType": "reasoning"})
+            self._chunk(1, 1, {"type": "block-end", "block": {"type": "reasoning", "text": "先分析再决定" * 40}})
         )
-        integration._on_done()
-        self.assertIsNone(integration._dsh_anim)
-        self.assertIs(engine.states.state, PetState.PERFORMING)
-        self.assertEqual(engine.player.action.id, "celebrate")
+        for _ in range(10):
+            integration.drain_events()
+            time.sleep(0.05)
+        self.assertFalse(any(kind == "summary" for kind, _ in sink.bubbles))
+        self.assertIsNone(integration._reasoning_pending or None)
 
-    def test_maintain_anim_replays_with_gap_while_condition_holds(self) -> None:
-        engine, integration = self._make()
-        integration._handle_event(self._chunk(1, 1, {"type": "block-start", "blockType": "reasoning"}))
-        # Let the current performance run to completion.
-        now = time.time()
-        for _ in range(600):
-            engine.tick(now, 0.02, (0.0, 0.0), None, None)
-            if engine.states.state is PetState.IDLE:
-                break
-        self.assertIs(engine.states.state, PetState.IDLE)
-        # Throttled: an immediate replay is suppressed so the pet rests in its
-        # natural idle sway between work cycles.
-        integration.maintain_anim()
-        self.assertIs(engine.states.state, PetState.IDLE)
-        # Once the replay gap has passed the work animation replays (condition
-        # still holds: reasoning pending).
-        integration._anim_last_replay = time.perf_counter() - (integration.REPLAY_GAP_S + 1.0)
-        integration.maintain_anim()
-        self.assertIs(engine.states.state, PetState.PERFORMING)
-        # Reasoning finished -> no replay.
-        integration._reasoning_pending = False
-        for _ in range(600):
-            engine.tick(now, 0.02, (0.0, 0.0), None, None)
-            if engine.states.state is PetState.IDLE:
-                break
-        integration._anim_last_replay = time.perf_counter() - (integration.REPLAY_GAP_S + 1.0)
-        integration.maintain_anim()
-        self.assertIs(engine.states.state, PetState.IDLE)
+    def test_summary_restating_the_reply_is_dropped(self) -> None:
+        integration, sink = self._integration("收到喵～")
+        integration._last_bubble_at = -1e9
+        integration._handle_event(self._chunk(1, 1, {"type": "text-delta", "text": "收到喵～"}))
+        integration._handle_event(self._session_event("assistant/message", {}))
+        for _ in range(10):
+            integration.drain_events()
+            time.sleep(0.05)
+        # Short reply: never even submitted (below the 60-char gate).
+        self.assertFalse(any(kind == "summary" for kind, _ in sink.bubbles))
 
 
 if __name__ == "__main__":

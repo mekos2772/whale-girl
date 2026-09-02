@@ -14,6 +14,7 @@ from PySide6.QtNetwork import QLocalServer
 from PySide6.QtWidgets import QApplication
 
 from .action_library import ActionLibrary
+from .affection import AffectionStore
 from .bubble_layer import BubbleLayer
 from .collision import WorkArea, ground_for_point, union_bounds
 from .config import load_config
@@ -67,7 +68,9 @@ def run() -> int:
 
     config = load_config()
     library = ActionLibrary(Path(config["asset_manifest"]))
-    engine = PetEngine(library, config)
+    affection_store = AffectionStore()
+    affection = affection_store.load()
+    engine = PetEngine(library, config, affection=affection, affection_store=affection_store)
     rig_model_path = Path(config["asset_manifest"]).parent / library.live_rig["model"]
     rig = load_rig_model(rig_model_path)
     cache = ImageCache()
@@ -115,19 +118,45 @@ def run() -> int:
         """Character's actual head position (height ~220 display px, scaled)."""
         return engine.root_y - 220.0 * engine.display_h / 384.0
 
+    head_hovered = [False]
+    hide_timer = QTimer()
+    hide_timer.setSingleShot(True)
+    hide_timer.setInterval(180)
+
+    def on_hide_timeout() -> None:
+        if panel.quick_input.hasFocus():
+            return
+        position_panel_at_pet()
+
+    hide_timer.timeout.connect(on_hide_timeout)
+
+    def on_head_hovered(hovered: bool) -> None:
+        head_hovered[0] = bool(hovered)
+        if hovered:
+            hide_timer.stop()
+            position_panel_at_pet()
+        elif integration.mode == "agent" and not panel.quick_input.hasFocus():
+            hide_timer.start()
+
     def position_panel_at_pet() -> None:
-        """Pin the white input box above the pet. The input is the only
-        persistent surface — all information arrives as speech bubbles —
-        and it never steals focus while appearing."""
+        """Pin and reveal the input according to connection, mode and activity."""
+        if not integration.connected:
+            panel.hide()
+            return
         if panel.quick_input.hasFocus():
             return  # never move the window mid-IME-composition
         panel.position_near(engine.root_x, pet_head_y())
-        if integration.connected:
+        interacting = panel.rect().contains(panel.mapFromGlobal(QCursor.pos()))
+        if integration.should_show_panel(
+            head_hovered=head_hovered[0],
+            panel_interacting=interacting,
+        ):
             panel.show_box()
         else:
             panel.hide()
 
     integration.on_activity = position_panel_at_pet
+    window.head_hovered.connect(on_head_hovered)
     window.set_dsh_integration(integration)
     integration.start()
 
@@ -138,10 +167,19 @@ def run() -> int:
     def on_bubble_requested(text: str, kind: str) -> None:
         dbg(f"bubble layer add kind={kind}")
         bubbles.add_bubble(text, kind)
+        if not panel.quick_input.hasFocus():
+            position_panel_at_pet()
         dbg(f"bubble layer chips={len(bubbles.bubbles())} visible={bubbles.isVisible()}")
 
     panel.bubble_requested.connect(on_bubble_requested)
-    bubbles.message_clicked.connect(panel.show_panel)
+
+    def on_bubble_clicked() -> None:
+        if integration.connected:
+            panel.show_panel()
+        else:
+            bubbles.hide()
+
+    bubbles.message_clicked.connect(on_bubble_clicked)
 
     primary = QGuiApplication.primaryScreen()
     available = primary.availableGeometry()
@@ -203,10 +241,9 @@ def run() -> int:
         frame = engine.tick(now, dt, (float(cursor.x()), float(cursor.y())), ground, x_bounds)
         integration.maintain_anim()
         # Keep the capsule pinned above the pet's head while visible, but
-        # freeze it while the quick input is focused: moving the top-level
-        # window mid-composition would discard a half-typed Chinese phrase.
-        if panel.isVisible() and not panel.quick_input.hasFocus():
-            panel.position_near(engine.root_x, pet_head_y())
+        # re-evaluate the mode-specific visibility whenever the cursor moves.
+        if not panel.quick_input.hasFocus():
+            position_panel_at_pet()
         if bubbles.isVisible() and not panel.quick_input.hasFocus():
             top = panel.y() if panel.isVisible() else pet_head_y()
             bubbles.position_above(engine.root_x, top)
@@ -224,7 +261,9 @@ def run() -> int:
     dsh_poll = QTimer()
     dsh_poll.setInterval(int(DshIntegration.POLL_INTERVAL_S * 1000))
     dsh_drain = QTimer()
-    dsh_drain.setInterval(500)
+    # Keep streamed text and approval cards feeling live. drain_events itself
+    # has a per-pass budget, so this cadence cannot starve rendering.
+    dsh_drain.setInterval(50)
 
     def on_check() -> None:
         now = time.perf_counter()
@@ -250,6 +289,7 @@ def run() -> int:
         dsh_drain.stop()
         bubbles.hide()
         integration.stop()
+        affection_store.save(engine.affection)
 
     window.closed.connect(shutdown)
     window.closed.connect(app.quit)

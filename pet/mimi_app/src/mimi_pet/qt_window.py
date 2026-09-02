@@ -32,6 +32,7 @@ from .state_machine import PetState
 
 class MimiWindow(QWidget):
     closed = Signal()
+    head_hovered = Signal(bool)
 
     def __init__(
         self,
@@ -73,6 +74,7 @@ class MimiWindow(QWidget):
         # Hover itself stays silent — cursor attention is continuous (Live
         # gaze tracking), only the leave→enter gap carries meaning.
         self._pointer_left_at: float | None = None
+        self._head_hovered = False
 
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
@@ -135,6 +137,24 @@ class MimiWindow(QWidget):
         )
         painter.restore()
 
+    def _set_head_hovered(self, hovered: bool) -> None:
+        hovered = bool(hovered)
+        if hovered == self._head_hovered:
+            return
+        self._head_hovered = hovered
+        self.head_hovered.emit(hovered)
+
+    def _is_head_at(self, local_pos: QPoint) -> bool:
+        if self.width() <= 0 or self.height() <= 0:
+            return False
+        x_ratio = local_pos.x() / float(self.width())
+        y_ratio = local_pos.y() / float(self.height())
+        # Match the existing touch-region definition: only the upper head/hair
+        # area is a hover affordance, not the face/body click zones.
+        return self._visible_at(local_pos) and y_ratio < 0.62 and (
+            y_ratio < 0.52 or 0.30 <= x_ratio < 0.70
+        )
+
     # ------------------------------------------------------------------ mouse
 
     def _visible_at(self, local_pos: QPoint) -> bool:
@@ -171,6 +191,7 @@ class MimiWindow(QWidget):
         self._begin_drag(float(cursor.x()), float(cursor.y()))
 
     def mouseMoveEvent(self, event) -> None:  # noqa: N802 (Qt override)
+        self._set_head_hovered(self._is_head_at(event.position().toPoint()))
         if self.engine.states.state is PetState.DRAGGING:
             self.engine.update_drag(
                 event.globalPosition().x(),
@@ -228,6 +249,7 @@ class MimiWindow(QWidget):
 
     def enterEvent(self, event) -> None:  # noqa: N802 (Qt override)
         super().enterEvent(event)
+        self._set_head_hovered(self._is_head_at(self.mapFromGlobal(QCursor.pos())))
         if self._dragging or self._press_armed or self._pointer_left_at is None:
             return
         away_s = time.perf_counter() - self._pointer_left_at
@@ -236,6 +258,7 @@ class MimiWindow(QWidget):
 
     def leaveEvent(self, event) -> None:  # noqa: N802 (Qt override)
         super().leaveEvent(event)
+        self._set_head_hovered(False)
         self._pointer_left_at = time.perf_counter()
 
     def _move_to_root(self) -> None:
@@ -389,10 +412,13 @@ class MimiWindow(QWidget):
         if self.dsh is not None:
             dsh_menu = menu.addMenu("Harness")
             dsh_menu.setStyleSheet(self.MENU_QSS)
-            # 模式：DSH 联动 = 监听工作会话；桌宠 Agent = 影子会话聊天。
+            # 模式：工作模式跟随 DSH 活动；桌宠模式在头部悬停时聊天。
             mode_group = QActionGroup(dsh_menu)
             mode_group.setExclusive(True)
-            for label, value in (("DSH 联动", "link"), ("桌宠 Agent", "agent")):
+            for label, value in (
+                ("工作模式（跟随 DSH）", "link"),
+                ("桌宠模式（和 Mimi 聊天）", "agent"),
+            ):
                 mode_item = dsh_menu.addAction(label)
                 mode_item.setCheckable(True)
                 mode_item.setChecked(self.dsh.mode == value)
