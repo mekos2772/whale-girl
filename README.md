@@ -1,9 +1,11 @@
 # 鲸鱼娘 Mimi — DeepSeek Harness 桌面宠物
 
-`mimi-desktop-pet` 会在 DeepSeek Harness 启动时自动唤醒 Mimi。她不只是播放动画：会跟随 DSH 的思考、工具调用、提问、完成与失败状态做出动作，并把回复显示成头顶气泡；也可以切换到独立的「Mimi 管家」会话，直接从桌面输入中文任务。
+`mimi-desktop-pet` 是一个标准的 DeepSeek Harness（DSH）桌面宠物插件：会在 DSH 启动时自动唤醒 Mimi。她不只是播放动画：会跟随 DSH 的思考、工具调用、提问、完成与失败状态做出动作，并把回复显示成头顶气泡；也可以切换到独立的「Mimi 管家」会话，直接从桌面输入中文任务。
+
+本仓库使用 `dsh-plugin-mimi` 作为 GitHub 项目名，并加入 `dsh-plugin` 主题；Computer Use 既作为 Mimi 的内置附属能力提供，也单独发布为 `@milkuovo/dsh-computer-use`。
 
 - npm：<https://www.npmjs.com/package/mimi-desktop-pet>
-- GitHub：<https://github.com/mekos2772/whale-girl>
+- GitHub：<https://github.com/mekos2772/dsh-plugin-mimi>
 - 当前版本：`0.6.0`
 - 已验证 DSH：`0.1.1-rc.2`（同时兼容现有 `0.1.0-rc.6` 协议面）
 
@@ -29,7 +31,7 @@ dsh plugin --profile desktop add mimi-desktop-pet@0.6.0
 若 npm 镜像尚未同步，可直接从 GitHub 标签安装：
 
 ```bash
-dsh plugin --profile web add github:mekos2772/whale-girl#v0.6.0
+dsh plugin --profile web add github:mekos2772/dsh-plugin-mimi#v0.6.0
 ```
 
 重启 DSH 后生效。DSH 会自动把声明了 `dsh.bundle.patch` 的包加入 profile；无需手工修改 `cordis.patch.yml`。

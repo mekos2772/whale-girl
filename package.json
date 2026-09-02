@@ -28,10 +28,12 @@
   },
   "keywords": [
     "dsh",
+    "dsh-plugin",
     "deepseek-harness",
     "desktop-pet",
     "桌宠",
     "deepseek",
+    "computer-use",
     "cordis",
     "plugin"
   ],
@@ -45,6 +47,14 @@
   "bundledDependencies": [
     "@milkuovo/dsh-computer-use"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mekos2772/dsh-plugin-mimi.git"
+  },
+  "homepage": "https://github.com/mekos2772/dsh-plugin-mimi#readme",
+  "bugs": {
+    "url": "https://github.com/mekos2772/dsh-plugin-mimi/issues"
+  },
   "license": "MIT",
   "engines": {
     "node": ">=18"
