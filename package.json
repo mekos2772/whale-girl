@@ -1,6 +1,6 @@
 {
   "name": "mimi-desktop-pet",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "鲸鱼娘 Mimi 超级桌面助理：DeepSeek Harness 桌面伴侣，内置 Windows Computer Use，支持观察、点击、输入、滚动与操作后验证。",
   "type": "module",
   "main": "lib/index.js",
@@ -38,10 +38,10 @@
     "plugin"
   ],
   "peerDependencies": {
-    "@deepseek-ai/cordis": "^4.0.1"
+    "@deepseek-ai/cordis": "^4.0.2"
   },
   "dependencies": {
-    "@deepseek-ai/schemastery": "^3.18.1",
+    "@deepseek-ai/schemastery": "^3.18.2",
     "@milkuovo/dsh-computer-use": "0.2.0"
   },
   "bundledDependencies": [

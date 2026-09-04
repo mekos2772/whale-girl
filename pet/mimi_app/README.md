@@ -1,6 +1,6 @@
 # Mimi 桌宠运行程序（PySide6 v1）
 
-当前状态：交互/DSH 联动/桌宠 Agent 全链路可用（2026-08-23）。**接手先读 `../docs/MIMI_PROJECT_HANDOFF.md`**（环境、启动命令、交互全景、DSH 协议、影子会话与权限）；素材方向再读 `../docs/MIMI_TEXT_MODEL_HANDOFF.md`。注意：本机 PySide6 6.11.1 装在**系统 Python 3.11**（`AppData\Local\Programs\Python\Python311`），项目 `.venv` 里没有——直接用系统解释器启动，命令见交接文档 §2。
+当前状态：交互/DSH 联动/桌宠 Agent 全链路可用；已适配并实机验证 DSH `0.1.2-rc.1`（2026-09-04）。**接手先读 `../docs/MIMI_PROJECT_HANDOFF.md`**（环境、启动命令、交互全景、DSH 协议、影子会话与权限）；素材方向再读 `../docs/MIMI_TEXT_MODEL_HANDOFF.md`。注意：本机 PySide6 6.11.1 装在**系统 Python 3.11**（`AppData\Local\Programs\Python\Python311`），项目 `.venv` 里没有——直接用系统解释器启动，命令见交接文档 §2。
 
 新开发者或纯文本模型接手前必须先读 `../docs/MIMI_PROJECT_HANDOFF.md` 与 `../docs/MIMI_TEXT_MODEL_HANDOFF.md`，再读 `MIMI_ACTION_CATALOG.md`、`MIMI_LIVE2D_FOUNDATION.md`、`MIMI_PROJECT_FRAMEWORK.md`。本文只描述程序本身。
 

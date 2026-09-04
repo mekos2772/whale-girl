@@ -430,6 +430,7 @@ class MimiWindow(QWidget):
             show_panel_action = dsh_menu.addAction("打开消息面板")
             show_panel_action.triggered.connect(self._dsh_show_panel)
             self._build_project_menu(dsh_menu)
+            self._build_pet_model_menu(dsh_menu)
             update_info = self.dsh.plugin_update_available()
             if update_info:
                 installed, latest = update_info
@@ -491,6 +492,63 @@ class MimiWindow(QWidget):
             action.triggered.connect(
                 lambda checked=False, _sid=sid: self._project_select(_sid)
             )
+
+    def _build_pet_model_menu(self, dsh_menu) -> None:
+        """桌宠模型：只切换 Mimi shadow session，独立于 DSH 工作模型。"""
+        if self.dsh is None or self.dsh.mode != "agent":
+            return
+        current_sid = self.dsh._agent_session_id
+        model_menu = dsh_menu.addMenu("桌宠模型")
+        model_menu.setStyleSheet(self.MENU_QSS)
+        catalog = self.dsh.session_model_choices(force_refresh=True)
+        current_provider, current_model, current_effort = self.dsh.current_session_model(current_sid)
+        if not catalog:
+            empty = model_menu.addAction("暂无可用模型")
+            empty.setEnabled(False)
+            if self.dsh._model_catalog_error:
+                err = model_menu.addAction(f"获取失败：{self.dsh._model_catalog_error[:30]}")
+                err.setEnabled(False)
+            return
+        if not current_sid:
+            empty = model_menu.addAction("未准备桌宠会话")
+            empty.setEnabled(False)
+            return
+        for entry in catalog:
+            label = entry.label or entry.model_id
+            if entry.provider_label:
+                label = f"{entry.provider_label} · {label}"
+            if entry.reasoning_efforts:
+                model_submenu = model_menu.addMenu(label)
+                model_submenu.setStyleSheet(self.MENU_QSS)
+                for effort in entry.reasoning_efforts:
+                    effort_action = model_submenu.addAction(effort.label or effort.effort_id)
+                    effort_action.setCheckable(True)
+                    effort_action.setChecked(
+                        entry.provider == current_provider
+                        and entry.model_id == current_model
+                        and effort.effort_id == current_effort
+                    )
+                    effort_action.setToolTip(effort.description or effort.effort_id)
+                    effort_action.triggered.connect(
+                        lambda checked=False, _sid=current_sid, _mid=entry.model_id,
+                        _provider=entry.provider, _effort=effort.effort_id: (
+                            self.dsh.select_session_model(_sid, _mid, _provider, _effort)
+                        )
+                    )
+                continue
+            action = model_menu.addAction(label)
+            action.setCheckable(True)
+            action.setChecked(
+                entry.provider == current_provider and entry.model_id == current_model
+            )
+            action.setToolTip(entry.description or entry.model_id)
+            action.triggered.connect(
+                lambda checked=False, _sid=current_sid, _mid=entry.model_id,
+                _provider=entry.provider: (
+                    self.dsh.select_session_model(_sid, _mid, _provider)
+                )
+            )
+
 
     def _dsh_prompt(self) -> None:
         from PySide6.QtWidgets import QInputDialog

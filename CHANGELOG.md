@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.1 — 2026-09-04
+
+- 适配 DeepSeek Harness `0.1.2-rc.1`：使用 `authenticatedUrl` 完成 Python 端一次性认证交换，认证 Cookie 仅保存在内存中。
+- 统一新版 Remote RPC：使用 slash endpoint 与 `payload.args` envelope，并修正 session/model 相关 wire 参数。
+- 接入 `remote.mux` 的 `$events`、`session/control`、`session/follow` 流；等待 `ready` 后报告连接，并支持 follow 重连、baseline 回放和序列去重。
+- 修正工作模式 session 目标选择与 follow 同步，避免固定项目、自动选择和异步 poll 之间串线。
+- 新增桌宠模型目录/选择与 reasoning effort 菜单，和本地回复摘要模型保持隔离。
+- 保持内置 Computer Use `0.2.0`；已在 DSH `0.1.2-rc.1` + Mimi 实机验证观察、点击和操作后观察闭环。
+- 258 项 Python 测试通过；Remote mux、窗口 E2E、GUI smoke 和 npm 包运行时检查通过。
+
 ## 0.6.0 — 2026-09-03
 
 - 内置 `@milkuovo/dsh-computer-use@0.2.0`，Computer Use 直接随 Mimi 安装，提供截图、UI Automation 树、点击、输入、滚动、拖动、按键与操作后验证。

@@ -33,7 +33,15 @@ from .activity_text import (
 )
 from .affection import source_label
 from .cot_summarizer import CoTSummarizer, local_summary
-from .dsh_bridge import DshBridge, DshError, DshEvent, DshEventThread, dbg
+from .dsh_bridge import (
+    DshBridge,
+    DshError,
+    DshEvent,
+    DshEventThread,
+    ModelCatalogEntry,
+    DEFAULT_HOST,
+    dbg,
+)
 from .engine import PetEngine
 from .plugin_update import installed_plugin_version, is_newer, latest_plugin_version
 from .state_machine import PetState
@@ -41,6 +49,8 @@ from .state_machine import PetState
 
 @dataclass
 class DshQuestion:
+    # ``rpc_id`` is retained as a compatibility alias for old fake bridges and
+    # persisted callers. Remote waterfall replies are keyed by client/event id.
     rpc_id: str
     session_id: str
     id: str
@@ -49,6 +59,8 @@ class DshQuestion:
     header: str = ""
     options: list[dict] = field(default_factory=list)
     multi_select: bool = False
+    client_id: str = ""
+    event_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -147,7 +159,7 @@ class DshIntegration:
     REPLAY_GAP_S = 10.0  # min seconds between DSH work-animation replays
     MAX_EVENTS_PER_DRAIN = 256
 
-    def __init__(self, engine: PetEngine, host: str = "127.0.0.1:3080") -> None:
+    def __init__(self, engine: PetEngine, host: str = DEFAULT_HOST) -> None:
         self.engine = engine
         self.bridge = DshBridge(host=host)
         self.event_queue: queue.Queue[DshEvent] = queue.Queue()
@@ -162,6 +174,7 @@ class DshIntegration:
             events=self.event_queue,
             on_connect=lambda: self._queue_link(True),
             on_disconnect=lambda: self._queue_link(False),
+            auth=self.bridge._auth,
         )
         self.working = False
         self.last_error: str | None = None
@@ -178,7 +191,10 @@ class DshIntegration:
         # different project's information stream.
         self._view_generation = 0
 
-        # Pet-agent mode: the pet owns one archived "shadow session" on the
+        # The Remote mux follows only the session currently visible in Mimi.
+        # Keep this synchronization behind a duck-typed helper so old test
+        # bridges/readers remain usable.
+        self._followed_session: str | None = None
         # DSH host (invisible in the web UI) driven by DSH's model config.
         # mode: "link" mirrors the user's work sessions (default), "agent"
         # routes the panel input and pet reactions to the shadow session.
@@ -247,6 +263,15 @@ class DshIntegration:
         # running session automatically.
         self._known_sessions: list = []
         self._pinned_session: str | None = None
+        # Session model picker: DSH exposes a per-session model switch. The
+        # menu only shows "switch to <model>" entries; the picker must work
+        # whether DSH is currently connected or not (offline → cached).
+        self._model_catalog: list[ModelCatalogEntry] = []
+        self._model_catalog_loaded = False
+        self._model_catalog_error: str | None = None
+        # Per-session provider/model route reported by DSH's modelSelection
+        # projection or confirmed by session/selectModel.
+        self._session_models: dict[str, tuple[str, str, str]] = {}
         self.activity = ActivityState(
             harness_display_name="",
             status="disconnected",
@@ -536,6 +561,7 @@ class DshIntegration:
             self._was_running = False
             previously_running = False
             self._sync_questions()
+        self._set_followed_session(desired_session)
         if target is not None:
             sid = target.session_id
             key = (sid, bool(target.running))
@@ -545,6 +571,15 @@ class DshIntegration:
             was_active = not session_changed and previous_session == sid
             self._active_session = sid
             self._harness_raw = getattr(target, "agent_preset", "") or ""
+            model_id = getattr(target, "model_id", "") or ""
+            if model_id:
+                selection = (
+                    getattr(target, "model_provider", "") or "",
+                    model_id,
+                    getattr(target, "reasoning_effort", "") or "",
+                )
+                if self._session_models.get(sid) != selection:
+                    self._session_models[sid] = selection
             if getattr(target, "title", ""):
                 self._title = target.title
             running = bool(target.running)
@@ -572,7 +607,14 @@ class DshIntegration:
             self._sink("set_status", "空闲")
         self._emit_activity()
 
-    # ------------------------------------------------------------ project picker
+    def _set_followed_session(self, session_id: str | None) -> None:
+        if session_id == self._followed_session:
+            return
+        self._followed_session = session_id
+        setter = getattr(self.thread, "set_sessions", None)
+        if callable(setter):
+            setter({session_id} if session_id else set())
+
 
     def session_choices(self) -> list[dict]:
         """(session_id, label, running) for every known DSH session."""
@@ -595,6 +637,89 @@ class DshIntegration:
 
     def pinned_session(self) -> str | None:
         return self._pinned_session
+
+    # ------------------------------------------------------------- session model
+
+    def session_model_choices(self, *, force_refresh: bool = False) -> list[ModelCatalogEntry]:
+        """Return DSH's model catalog for the menu.
+
+        Refreshes at most once per call; callers (the right-click menu) decide
+        when to refetch. Failures return the cached list with ``last_error``
+        set so a flaky DSH cannot crash the picker on every right-click.
+        """
+        if force_refresh or not self._model_catalog_loaded:
+            self._refresh_model_catalog()
+        return list(self._model_catalog)
+
+    def current_session_model(self, session_id: str | None = None) -> tuple[str, str, str]:
+        """Return ``(provider, model, reasoning_effort)`` for one session."""
+        sid = session_id or self._active_session or ""
+        if not sid:
+            return ("", "", "")
+        return self._session_models.get(sid, ("", "", ""))
+
+    def select_session_model(
+        self,
+        session_id: str | None,
+        model_id: str,
+        provider: str,
+        reasoning_effort: str | None = None,
+    ) -> bool:
+        """Switch the provider/model route used by the session's next prompt."""
+        sid = session_id or self._active_session or ""
+        model_id = (model_id or "").strip()
+        provider = (provider or "").strip()
+        if not sid:
+            self._sink("append_message", "info", "没有可用的桌宠会话")
+            self._bubble("没有可用的桌宠会话")
+            return False
+        if self.mode != "agent" or sid != self._agent_session_id:
+            self._sink("append_message", "info", "桌宠模型只能修改桌宠会话")
+            self._bubble("桌宠模型只能修改桌宠会话")
+            return False
+        if not model_id or not provider:
+            return True
+        try:
+            result = self.bridge.select_session_model(
+                sid,
+                model_id,
+                provider,
+                reasoning_effort,
+            )
+        except DshError as exc:
+            self.last_error = str(exc)
+            self._sink("append_message", "info", f"切换模型失败：{str(exc)[:60]}")
+            self._bubble(f"切换模型失败：{str(exc)[:40]}")
+            self._emit_activity()
+            return False
+        selected = result.get("selected") if isinstance(result, dict) else None
+        if not isinstance(selected, dict):
+            selected = {}
+        self._session_models[sid] = (
+            str(selected.get("provider") or provider),
+            str(selected.get("model") or model_id),
+            str(selected.get("reasoningEffort") or reasoning_effort or ""),
+        )
+        self._note_activity()
+        return True
+
+    def _refresh_model_catalog(self) -> None:
+        """Fetch the model catalog; tolerate failures so the menu stays open."""
+        try:
+            catalog = self.bridge.model_catalog()
+        except DshError as exc:
+            self._model_catalog_error = str(exc)
+            # Keep the previously cached list so the menu is still useful
+            # during a transient DSH outage.
+            self._model_catalog_loaded = True
+            return
+        except Exception as exc:  # network/JSON quirks
+            self._model_catalog_error = f"{type(exc).__name__}: {exc}"
+            self._model_catalog_loaded = True
+            return
+        self._model_catalog = list(catalog)
+        self._model_catalog_loaded = True
+        self._model_catalog_error = None
 
     def select_session(self, session_id: str) -> None:
         """Pin the project the capsule tracks; "" (empty) = auto-follow."""
@@ -741,9 +866,17 @@ class DshIntegration:
                 self._handle_jobs(payload)
         elif method == "question/requested":
             if self._accept_event_session(payload):
-                self._handle_question(event.rpc_id, payload)
+                self._handle_question(
+                    event.rpc_id,
+                    payload,
+                    client_id=event.client_id,
+                    event_id=event.event_id or event.rpc_id,
+                )
         elif method == "question/resolved":
-            self._clear_questions(payload.get("questionRpcId", ""))
+            self._clear_questions(
+                str(payload.get("questionRpcId") or event.event_id or event.rpc_id),
+                event_id=event.event_id,
+            )
         elif method == "session/event":
             if self._accept_event_session(payload):
                 self._handle_session_event(payload)
@@ -1113,7 +1246,14 @@ class DshIntegration:
 
     # --------------------------------------------------------------- questions
 
-    def _handle_question(self, rpc_id: str, payload: dict) -> None:
+    def _handle_question(
+        self,
+        rpc_id: str,
+        payload: dict,
+        *,
+        client_id: str = "",
+        event_id: str = "",
+    ) -> None:
         session_id = payload.get("sessionId", "")
         questions = payload.get("questions") or []
         if not isinstance(questions, (list, tuple)):
@@ -1130,9 +1270,12 @@ class DshIntegration:
                 header=str(raw.get("header", "") or ""),
                 options=list(raw.get("options") or []),
                 multi_select=bool(raw.get("multiSelect", False)),
+                client_id=client_id,
+                event_id=event_id,
             )
             duplicate = any(
-                item.rpc_id == question.rpc_id and item.id == question.id
+                (item.event_id or item.rpc_id) == (question.event_id or question.rpc_id)
+                and item.id == question.id
                 for item in self.pending_questions
             )
             if not duplicate:
@@ -1146,8 +1289,12 @@ class DshIntegration:
             self._bubble(f"问你：{first.question}", kind="question")
             self._trigger_listen()
 
-    def _clear_questions(self, rpc_id: str) -> None:
-        self.pending_questions = [q for q in self.pending_questions if q.rpc_id != rpc_id]
+    def _clear_questions(self, rpc_id: str, *, event_id: str = "") -> None:
+        key = event_id or rpc_id
+        self.pending_questions = [
+            q for q in self.pending_questions
+            if (q.event_id or q.rpc_id) != key
+        ]
         self._waiting_text = ""
         self._sync_questions()
         self._emit_activity()
@@ -1366,33 +1513,60 @@ class DshIntegration:
 
     # ------------------------------------------------------------------ user actions
 
-    def prompt_active(self, text: str) -> bool:
-        target = None
+    def resolve_prompt_target(self) -> str | None:
+        """Return the session id that ``prompt_active`` would write to.
+
+        Pure resolver so callers/tests can predict the target without mutating
+        integration state. ``None`` means "no session available" — the caller
+        should surface that to the user rather than blindly writing somewhere.
+        """
         if self.mode == "agent":
             if not self.ensure_agent_session():
+                return None
+            return self._agent_session_id
+        if self._active_session is not None:
+            return self._active_session
+        # No session observed yet: prefer the user's pinned project, then
+        # the first running DSH session, then any session at all. This
+        # mirrors the auto-follow selection so the first typed prompt lands
+        # in the project the capsule would have tracked anyway.
+        candidates = [
+            session
+            for session in self._available_sessions()
+            if session.session_id != self._agent_session_id
+        ]
+        if not candidates:
+            return None
+        if self._pinned_session:
+            preferred = next(
+                (session for session in candidates if session.session_id == self._pinned_session),
+                None,
+            )
+            if preferred is not None:
+                return preferred.session_id
+        running = next((session for session in candidates if session.running), None)
+        return (running or candidates[0]).session_id
+
+    def prompt_active(self, text: str) -> bool:
+        target = self.resolve_prompt_target()
+        if target is None:
+            if self.mode == "agent":
+                # ensure_agent_session already surfaced a bubble for the
+                # upstream failure; nothing more to do.
                 return False
-            target = self._agent_session_id
-        elif self._active_session is None:
-            sessions = [
-                session
-                for session in self._available_sessions()
-                if session.session_id != self._agent_session_id
-            ]
-            if not sessions:
-                self._sink("append_message", "info", "没有可用的 DSH 会话")
-                self._bubble("没有可用的 DSH 会话")
-                return False
-            preferred = None
-            if self._pinned_session:
-                preferred = next(
-                    (session for session in sessions if session.session_id == self._pinned_session),
-                    None,
-                )
-            chosen = preferred or next((session for session in sessions if session.running), sessions[0])
-            self._active_session = chosen.session_id
-            target = self._active_session
-        else:
-            target = self._active_session
+            self._sink("append_message", "info", "没有可用的 DSH 会话")
+            self._bubble("没有可用的 DSH 会话")
+            return False
+        # Remember the resolved target so follow-up events stream into the
+        # same session instead of bouncing between two projects on the next
+        # poll. Agent mode is bound to the shadow session for life.
+        if self.mode != "agent":
+            self._active_session = target
+        self._set_followed_session(target)
+        dbg(
+            f"prompt mode={self.mode} target={target[:26]} "
+            f"pinned={(self._pinned_session or '')[:26]}"
+        )
         try:
             prompt_text = text
             if self._is_current_agent_view():
@@ -1413,8 +1587,18 @@ class DshIntegration:
             answer = {"id": question.id, "selected": selected}
             if custom:
                 answer["custom"] = custom
-            self.bridge.respond(question.rpc_id, question.session_id, [answer])
-            self._clear_questions(question.rpc_id)
+            if question.client_id and question.event_id:
+                self.bridge.respond(
+                    question.client_id,
+                    question.event_id,
+                    {"answers": [answer]},
+                )
+                question_key = question.event_id
+            else:
+                # Compatibility path for pre-0.1.2 fake/legacy bridges.
+                self.bridge.respond(question.rpc_id, question.session_id, [answer])
+                question_key = question.rpc_id
+            self._clear_questions(question_key)
             text = "/".join(selected) or custom or "(空)"
             self._bubble(f"已回答：{text}")
             self._play_dsh_action("nod")
@@ -1422,4 +1606,35 @@ class DshIntegration:
         except DshError as exc:
             self._sink("append_message", "info", f"回答失败：{str(exc)[:60]}")
             self._bubble(f"回答失败：{str(exc)[:40]}")
+            return False
+
+    def answer_approval(
+        self,
+        client_id: str,
+        event_id: str,
+        outcome: str = "allowed-once",
+        session_id: str = "",
+    ) -> bool:
+        """Settle a Remote approval waterfall without affecting affection."""
+        try:
+            responder = getattr(self.bridge, "respond_approval", None)
+            if callable(responder):
+                responder(client_id, event_id, outcome)
+            else:
+                self.bridge.respond(client_id, event_id, outcome)
+            self._handle_event(
+                DshEvent(
+                    method="approval/resolved",
+                    rpc_id=event_id,
+                    payload={"sessionId": session_id, "eventId": event_id},
+                    client_id=client_id,
+                    event_id=event_id,
+                )
+            )
+            self._bubble("已处理批准请求")
+            self._play_dsh_action("nod")
+            return True
+        except (DshError, ValueError) as exc:
+            self._sink("append_message", "info", f"批准失败：{str(exc)[:60]}")
+            self._bubble(f"批准失败：{str(exc)[:40]}")
             return False

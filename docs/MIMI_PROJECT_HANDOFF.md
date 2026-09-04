@@ -1,6 +1,6 @@
 # Mimi 桌宠项目交接文档（应用运行时与 DSH 联动）
 
-更新日期：**2026-08-24**。本文件是应用与 DSH 联动方向的**第一阅读入口**；素材/视觉身份方向的第一入口仍是 `MIMI_TEXT_MODEL_HANDOFF.md`。两者都读后再看 `MIMI_ACTION_CATALOG.md`（素材清单）与 `工作记录.md`（逐日变更，#28-#36 为 08-23 连续工作）。
+更新日期：**2026-09-04**。本文件是应用与 DSH 联动方向的**第一阅读入口**；素材/视觉身份方向的第一入口仍是 `MIMI_TEXT_MODEL_HANDOFF.md`。两者都读后再看 `MIMI_ACTION_CATALOG.md`（素材清单）与 `工作记录.md`（逐日变更，#28-#36 为 08-23 连续工作）。
 
 ---
 
@@ -19,9 +19,9 @@ $env:MIMI_ASSET_ROOT='C:\Users\14408\Desktop\桌宠'
 C:\Users\14408\AppData\Local\Programs\Python\Python311\pythonw.exe -m mimi_pet.main
 ```
   （工作目录 `mimi_app/`；pythonw 静默，python.exe 可看报错）
-- **DSH**：本机已从 `0.1.0-rc.6` 升级到 npm 最新 `0.1.1-rc.2`，Node.js 24.15.0。08-24 实机验证 `session.list`、`/api/events.mux`、bundle 装配和插件自动拉起均正常。DSH 是 developer preview，升级前仍应保留回退版本。
+- **DSH**：本机已升级到 `0.1.2-rc.1`，Node.js 24.15.0。已实机验证新版认证、基础 Remote RPC、`/api/remote.mux`、bundle 装配、插件自动拉起和 Computer Use 观察/操作/验证闭环。DSH 是 developer preview，升级前仍应保留回退版本。
 - **DSH 启动会经插件自动拉起桌宠**（`dsh-plugin-mimi/lib/index.js`，settings 命名空间 `mimiPet`）。桌宠有 **QLocalServer 单实例保护**（`mimi-pet-singleton`）：插件自启与手动启动撞车时后来者静默退出。
-- 测试：`cd mimi_app && python -m pytest tests/ -q` → 当前 **162 项全过**（offscreen 平台，无 Qt 也能跑大部分领域层）。
+- 测试：`cd mimi_app && python -m pytest tests/ -q` → 当前 **258 项通过，4 项 opt-in/live gate 跳过**（offscreen 平台，无 Qt 也能跑大部分领域层）。
 - 诊断日志：`%TEMP%\mimi-pet-debug.log`（WS 连接/错误、follow 目标、事件接纳判定、气泡入层逐帧）——排 DSH 联动问题先看它。
 - 杀进程注意：Git Bash 里 `taskkill /PID` 会被 MSYS 转义弄坏，用 `powershell Stop-Process -Id <pid> -Force`。
 
@@ -62,11 +62,11 @@ C:\Users\14408\AppData\Local\Programs\Python\Python311\pythonw.exe -m mimi_pet.m
 
 ## 5. DSH 联动协议知识（挖包+实测得出，别再踩）
 
-- **HTTP RPC**：`POST http://127.0.0.1:3080/api/<method>`，信封 `{"type":"client-request","rpcId":"...","method":"...","payload":{...}}`。方法全集（client-connection 挖掘）：session.list/search/create/history/models/selectModel/rename/fork/prompt/attachment/updateQueue/cancel、subagent.*、host.*、workspace.*、settings.describe/mutate/...、agentPreset.*、credentials.*、goal.*、llm.*、skill.list。
-- **session.prompt 正确载荷**（旧 `{text}` 会 bad-request，该 bug 已修）：
-  `{"sessionId":..,"mode":"queue"|"steer","content":[{"type":"text","text":..}],"clientTimeZone":"Asia/Shanghai"}`
-- **events.mux WebSocket**（`ws://127.0.0.1:3080/api/events.mux`）：连接即自动 `session/subscribed` 到最近活跃会话（含归档会话——影子会话方案成立的基础）；帧为 `server-request`，方法有 session/event（assistant/chunk 流式、assistant/message、user/message、tool/call、tool/result、turn/start|end…）、session/projection、session/jobs、question/requested、approval/requested。
-- **坑：WS 空闲超时**。`create_connection(timeout=20)` 会把 recv 超时也设成 20s，静默期连接每 20s 死亡重连、2s 重连窗内事件整段丢失（气泡"时有时无"的真凶）。已修：握手后 `ws.settimeout(None)`。
+- **HTTP Remote RPC**：`POST http://127.0.0.1:3080/api/<namespace>/<method>`，信封 `{"type":"client-request","rpcId":"...","method":"namespace/method","payload":{"args":{...}}}`。`session/list` 使用 `_request`；`session/create`、`session/rename`、`session/cancel`、`session/prompt` 使用 `request`；`settings/mutate` 使用同一 `args` 中的 `ns`、`ops`、`expectedRevision`。
+- **session/prompt 正确载荷**（旧 dotted method 或 `{text}` 会 bad-request）：
+  `{"sessionId":..,"mode":"queue"|"steer","content":[{"type":"text","text":..}],"clientTimeZone":"Asia/Shanghai"}` 放在 `payload.args.request`。
+- **Remote mux WebSocket**（`ws://127.0.0.1:3080/api/remote.mux`）：统一承载 `$events`、`session/control` 和 `session/follow` 三类逻辑流；必须收到 `$events` 的 `ready` 后才报告连接。帧为 `server-request`，覆盖 session/event（assistant/chunk 流式、assistant/message、user/message、tool/call、tool/result、turn/start|end…）、session/projection、session/jobs、question/requested、approval/requested。
+- **Remote mux 连接策略**：握手后将 `recv` 超时设为短轮询，以便处理动态 follow 订阅；`$events` 必须先收到 `ready` 才报告连接，events/control 流异常会触发重连，follow 流支持 baseline 回放和 seq 去重。
 - **权限档位**（read-only / workspace-write / danger-full-access，approval ask/never）：**改不了已有会话**——网页端走 WS remote `commands/execute({agentId, line:"/permission <preset>"})`，HTTP 面无此方法（直接把 `/permission` 当 prompt 发只会被当聊天）。可行路径：`settings.mutate`（ns `permission`，op set `defaultPreset`）改默认 → **新建**会话继承 → 立即还原默认。桌宠的"权限舞蹈"已固化在 `ensure_agent_session`（还原失败不阻断、有测试）。
 - **影子会话**：归档（web UI 隐藏）+ 更名「Mimi 管家」+ 人格注入；id 与 `persona_version` 持久化在 `mimi_app/config/agent_session.json`，人格升级自动对旧会话重种一次。当前线上：`session-b62a5b94-…`，danger-full-access 已验证。
 - **人格 v2 要点**（`AGENT_PERSONA_PROMPT`）：简短口语中文；可查时间/电量/磁盘/网络/天气、Start-Process 开程序网页、文件整理、系统操作、写 PowerShell；破坏性操作先确认、优先可逆、防乱码 chcp 65001；只服务主人。

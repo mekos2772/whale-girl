@@ -24,7 +24,7 @@ from mimi_pet.state_machine import PetState  # noqa: E402
 
 def dsh_available() -> bool:
     try:
-        DshBridge(host="127.0.0.1:3080").rpc("session.list", {})
+        DshBridge(host="127.0.0.1:3080", timeout=0.5).rpc("session/list", {"_request": {}})
         return True
     except Exception:
         return False
@@ -611,13 +611,145 @@ class StreamingSinkTests(unittest.TestCase):
         self.assertFalse(integration.working)
 
 
-if __name__ == "__main__":
-    unittest.main()
+class NewRemoteProtocolTests(unittest.TestCase):
+    def test_rpc_uses_slash_endpoint_args_and_validates_response(self) -> None:
+        bridge = DshBridge(timeout=0.1)
+        captured = {}
+
+        def post(path, body):
+            captured["path"] = path
+            captured["body"] = body
+            return {
+                "type": "server-response",
+                "rpcId": body["rpcId"],
+                "result": {"ok": True, "value": {"accepted": True}},
+            }
+
+        bridge._post = post
+        value = bridge.rpc("session.prompt", {"request": {"sessionId": "s"}})
+        self.assertEqual(value, {"accepted": True})
+        self.assertEqual(captured["path"], "/api/session/prompt")
+        self.assertEqual(captured["body"]["method"], "session/prompt")
+        self.assertEqual(captured["body"]["payload"], {"args": {"request": {"sessionId": "s"}}})
+
+    def test_rpc_rejects_wrong_response_type_or_id(self) -> None:
+        bridge = DshBridge(timeout=0.1)
+        bridge._post = lambda path, body: {
+            "type": "client-response",
+            "rpcId": body["rpcId"],
+            "result": {"ok": True, "value": {}},
+        }
+        with self.assertRaises(DshError):
+            bridge.rpc("session/list", {"_request": {}})
+
+        bridge._post = lambda path, body: {
+            "type": "server-response",
+            "rpcId": "other",
+            "result": {"ok": True, "value": {}},
+        }
+        with self.assertRaises(DshError):
+            bridge.rpc("session/list", {"_request": {}})
+
+    def test_settings_mutate_keeps_three_wire_arguments(self) -> None:
+        bridge = DshBridge(timeout=0.1)
+        captured = {}
+
+        def post(path, body):
+            captured["body"] = body
+            return {
+                "type": "server-response",
+                "rpcId": body["rpcId"],
+                "result": {"ok": True, "value": {"revision": 8}},
+            }
+
+        bridge._post = post
+        self.assertEqual(bridge.settings_set_permission_preset("danger-full-access", 7), 8)
+        self.assertEqual(
+            captured["body"]["payload"]["args"],
+            {
+                "ns": "permission",
+                "ops": [{"op": "set", "path": ["defaultPreset"], "value": "danger-full-access"}],
+                "expectedRevision": 7,
+            },
+        )
+
+    def test_remote_event_result_uses_client_and_event_ids(self) -> None:
+        bridge = DshBridge(timeout=0.1)
+        captured = {}
+
+        def post(path, body):
+            captured["path"] = path
+            captured["args"] = body["payload"]["args"]
+            return {
+                "type": "server-response",
+                "rpcId": body["rpcId"],
+                "result": {"ok": True, "value": None},
+            }
+
+        bridge._post = post
+        bridge.respond("client-1", "event-1", {"answers": [{"id": "q", "selected": ["是"]}]})
+        self.assertEqual(captured["path"], "/api/$events/result")
+        self.assertEqual(captured["args"]["clientId"], "client-1")
+        self.assertEqual(captured["args"]["eventId"], "event-1")
+        self.assertEqual(captured["args"]["outcome"]["kind"], "result")
+
+    def test_follow_decoder_accepts_snapshot_event_chunks_and_deduplicates_seq(self) -> None:
+        events = queue.Queue()
+        reader = DshEventThread(events=events)
+        reader._decode_follow_value(
+            "session-1",
+            {
+                "type": "snapshot",
+                "cursor": 3,
+                "records": [
+                    {
+                        "type": "event",
+                        "event": {"type": "turn/start", "seq": 1, "time": 1, "data": {}},
+                    },
+                    {
+                        "type": "chunks",
+                        "event": {
+                            "type": "chunkrow/text-chunks",
+                            "seq": 2,
+                            "time": 2,
+                            "data": {"texts": ["你", "好"], "turn": 1, "step": 1},
+                        },
+                    },
+                ],
+                "hasMore": False,
+                "projections": {"asOfSeq": 3, "values": {}},
+            },
+        )
+        reader._decode_follow_value(
+            "session-1",
+            {"type": "event", "event": {"type": "turn/start", "seq": 1, "time": 1, "data": {}}},
+        )
+        decoded = [events.get_nowait() for _ in range(events.qsize())]
+        self.assertEqual([event.method for event in decoded], ["session/event", "session/event", "session/event"])
+        self.assertEqual(decoded[1].payload["event"]["data"]["chunk"]["text"], "你")
+        self.assertEqual(decoded[2].payload["event"]["data"]["chunk"]["text"], "好")
+
+    def test_waterfall_decoder_preserves_client_and_event_identity(self) -> None:
+        events = queue.Queue()
+        reader = DshEventThread(events=events)
+        reader._client_id = "client-2"
+        reader._decode_event_value(
+            {
+                "type": "waterfall",
+                "event": "user-questions/request",
+                "eventId": "event-2",
+                "agentId": "session-2",
+                "request": {"questions": []},
+            }
+        )
+        event = events.get_nowait()
+        self.assertEqual(event.client_id, "client-2")
+        self.assertEqual(event.event_id, "event-2")
+        self.assertEqual(event.rpc_id, "event-2")
 
 
 class BubbleDuplicateTests(unittest.TestCase):
-    """Regression: the previous turn's text must never replay, and chat
-    replies must not be re-shown as delayed summary bubbles."""
+    """Regression: previous replies must not replay as delayed bubbles."""
 
     def _integration(self):
         engine = make_engine()
@@ -869,3 +1001,7 @@ class HarnessAnimationTests(unittest.TestCase):
         integration._anim_last_replay = time.perf_counter() - (integration.REPLAY_GAP_S + 1.0)
         integration.maintain_anim()
         self.assertIs(engine.states.state, PetState.IDLE)
+
+
+if __name__ == "__main__":
+    unittest.main()

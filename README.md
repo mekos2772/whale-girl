@@ -6,15 +6,15 @@
 
 - npm：<https://www.npmjs.com/package/mimi-desktop-pet>
 - GitHub：<https://github.com/mekos2772/dsh-plugin-mimi>
-- 当前版本：`0.6.0`
-- 已验证 DSH：`0.1.1-rc.2`（同时兼容现有 `0.1.0-rc.6` 协议面）
+- 当前版本：`0.6.1`
+- 已验证 DSH：`0.1.2-rc.1`（新版认证、Remote RPC 与 Remote mux）
 
 ## 安装
 
 先安装最新版 DSH 与 pnpm：
 
 ```bash
-npm install -g @deepseek-ai/dsh@0.1.1-rc.2
+npm install -g @deepseek-ai/dsh@0.1.2-rc.1
 npm install -g pnpm
 ```
 
@@ -22,23 +22,32 @@ npm install -g pnpm
 
 ```bash
 # dsh web 使用 web profile
-dsh plugin --profile web add mimi-desktop-pet@0.6.0
+dsh plugin --profile web add mimi-desktop-pet@0.6.1
 
 # 若使用单独的 desktop profile
-dsh plugin --profile desktop add mimi-desktop-pet@0.6.0
+dsh plugin --profile desktop add mimi-desktop-pet@0.6.1
 ```
 
 若 npm 镜像尚未同步，可直接从 GitHub 标签安装：
 
 ```bash
-dsh plugin --profile web add github:mekos2772/dsh-plugin-mimi#v0.6.0
+dsh plugin --profile web add github:mekos2772/dsh-plugin-mimi#v0.6.1
 ```
 
 重启 DSH 后生效。DSH 会自动把声明了 `dsh.bundle.patch` 的包加入 profile；无需手工修改 `cordis.patch.yml`。
 
-> DSH 仍处于 developer preview，RC 版本可能发生不兼容变化。Mimi 0.6.0 已实测 `session.list`、`session.prompt`、`settings.*`、`/api/events.mux`、工具注册与插件生命周期。
+> DSH 仍处于 developer preview，RC 版本可能发生不兼容变化。Mimi 0.6.1 已实测 DSH `0.1.2-rc.1` 的认证、基础 RPC、Remote mux、工具注册、插件生命周期，以及 Computer Use 的观察/操作/验证闭环。
 
-## 0.6.0 有什么
+## DSH 0.1.2 适配更新
+
+- 适配 DSH `0.1.2-rc.1`：通过 `authenticatedUrl` 完成 Python 端一次性 token exchange，后续请求使用内存中的 signed cookie。
+- 统一新版 Remote RPC：方法使用 slash endpoint，参数放入 `payload.args`，并补齐 session/model 相关参数形状。
+- 接入 `remote.mux` 的 `$events`、`session/control` 和 `session/follow` 流；等待 `ready` 后才报告连接成功，并支持 follow 重连去重。
+- 修正工作模式的 session 目标稳定性：固定用户选择，发送前同步 follow 目标，避免跨项目回复串线。
+- 桌宠模型选择与回复摘要模型保持独立；模型目录、reasoning effort 和服务端拒绝均有对应处理。
+- 本机已验证 DSH 0.1.2 环境下的 Computer Use 观察、点击、操作后观察闭环。
+
+## 0.6.1 功能内容
 
 - 内置 Computer Use 0.2.0：窗口截图 + UI Automation 树，支持观察、点击、控件操作、填写、选择文字、滚动、拖动、按键和输入，不需要再单独安装。
 - 强制“观察 → 动作 → 验证”闭环：每次动作后旧快照立即失效，避免拿旧坐标或旧控件索引连续误操作。
@@ -86,7 +95,7 @@ DSH 设置中的命名空间为 `mimiPet`：
 ## 环境与体积
 
 - Windows 10/11
-- Node.js 18+（DSH 0.1.1-rc.2 实测环境为 Node.js 24）
+- Node.js 18+（DSH 0.1.2-rc.1 实测环境为 Node.js 24）
 - Python 3.11+ 与 PySide6 6.x
 - npm 包自带 `mimi_app` 与运行时素材；若配置 `petDir`，会优先运行本地项目版本。
 
@@ -97,7 +106,7 @@ $env:PYTHONPATH = (Resolve-Path .\mimi_app\src).Path
 python -m pytest .\mimi_app\tests -q
 
 python .\scripts\build_dsh_package.py
-dsh plugin --profile web add .\mimi-desktop-pet-0.6.0.tgz
+dsh plugin --profile web add .\release\mimi-desktop-pet-0.6.1.tgz
 dsh web --dump-config
 ```
 
