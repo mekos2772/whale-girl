@@ -9,11 +9,12 @@ opens the full chat card.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QPointF, QRectF, Qt, Signal, QTimer
+from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, Signal, QTimer
 from PySide6.QtGui import (
     QColor,
     QFont,
     QFontMetrics,
+    QGuiApplication,
     QPainter,
     QPainterPath,
     QPolygonF,
@@ -181,6 +182,7 @@ class BubbleLayer(QWidget):
         self._layout.setContentsMargins(0, 0, 0, 0)
         self._layout.setSpacing(4)
         self._chips: list[BubbleChip] = []
+        self._anchor: tuple[float, float] | None = None
         self.hide()
 
     # ------------------------------------------------------------------ API
@@ -222,17 +224,24 @@ class BubbleLayer(QWidget):
         height = sum(chip.height() for chip in self._chips) + 4 * max(0, len(self._chips) - 1)
         width = max(chip.width() for chip in self._chips)
         self.setFixedSize(width, height)
+        # Position before the first show: otherwise the stack appears at its
+        # stale location for one tick until the next position_above call.
+        self._apply_anchor()
         if not self.isVisible():
             self.show()
             self.raise_()
 
     def position_above(self, root_x: float, bottom_y: float) -> None:
-        """Pin the stack right above ``bottom_y`` (capsule top or head)."""
+        """Remember the anchor and pin the stack right above ``bottom_y``."""
+        self._anchor = (root_x, bottom_y)
+        self._apply_anchor()
+
+    def _apply_anchor(self) -> None:
+        if self._anchor is None:
+            return
+        root_x, bottom_y = self._anchor
         x = int(round(root_x - self.width() / 2.0))
         y = int(round(bottom_y - self.height() - 4.0))
-        from PySide6.QtGui import QGuiApplication
-        from PySide6.QtCore import QPoint
-
         screen = QGuiApplication.screenAt(QPoint(int(root_x), int(bottom_y)))
         if screen is None:
             screen = QGuiApplication.primaryScreen()

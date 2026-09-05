@@ -687,10 +687,10 @@ class PetEngine:
         While resting, the first double click spends itself standing up (or
         waking); the next one high-fives.
         """
-        if self.states.state not in (PetState.IDLE, PetState.PERFORMING):
-            return False
         if self.states.state is PetState.SLEEPING:
             return self.wake_up()
+        if self.states.state not in (PetState.IDLE, PetState.PERFORMING):
+            return False
         if self.is_sitting:
             return self.stand_up()
         if self.force_perform("high_five"):
@@ -922,16 +922,7 @@ class PetEngine:
                 ):
                     self._slung_release = False
 
-        # Fortune bubble while the cyber fortune performance plays.
-        if (
-            self.states.state is PetState.PERFORMING
-            and self.player.action is not None
-            and self.player.action.id == "fun_cyber_fortune"
-        ):
-            if self.bubble_text is None:
-                self.bubble_text = random.choice(FORTUNE_TEXTS)
-        else:
-            self.bubble_text = None
+        self.bubble_text = None
 
         # External bubble (DSH progress / questions) takes priority and
         # expires after its duration.

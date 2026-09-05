@@ -166,6 +166,8 @@ def run() -> int:
 
     def on_bubble_requested(text: str, kind: str) -> None:
         dbg(f"bubble layer add kind={kind}")
+        top = panel.y() if panel.isVisible() else pet_head_y()
+        bubbles.position_above(engine.root_x, top)
         bubbles.add_bubble(text, kind)
         if not panel.quick_input.hasFocus():
             position_panel_at_pet()

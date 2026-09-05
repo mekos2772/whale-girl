@@ -250,11 +250,6 @@ def affection_level(score: int) -> tuple[str, str]:
     return current[1], current[2]
 
 
-def source_label(source: str) -> str:
-    """Return a short, user-safe label for a recorded interaction source."""
-    return SOURCE_LABELS.get(source, source.replace("_", " ").strip() or "互动")
-
-
 class AffectionTracker:
     """Bounded, rate-limited relationship score.
 

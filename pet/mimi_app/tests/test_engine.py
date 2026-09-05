@@ -410,6 +410,14 @@ class InteractionTests(unittest.TestCase):
         self.assertEqual(engine.states.state, PetState.PERFORMING)
         self.assertIsNotNone(engine.player.action)
 
+    def test_double_click_wakes_a_sleeping_pet(self) -> None:
+        engine = make_engine()
+        self.assertTrue(engine.start_sleep())
+        self.assertEqual(engine.states.state, PetState.SLEEPING)
+        self.assertTrue(engine.trigger_double_click())
+        self.assertEqual(engine.states.state, PetState.SLEEPING)
+        self.assertEqual(engine.player.action.id, "wake_up")
+
     def test_hover_itself_triggers_nothing(self) -> None:
         # Hover attention is continuous Live gaze tracking; only a pointer
         # RETURNING after a long absence waves (see test_v5_interactions).

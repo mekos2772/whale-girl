@@ -174,7 +174,7 @@ class DshIntegration:
             events=self.event_queue,
             on_connect=lambda: self._queue_link(True),
             on_disconnect=lambda: self._queue_link(False),
-            auth=self.bridge._auth,
+            auth=self.bridge.auth,
         )
         self.working = False
         self.last_error: str | None = None

@@ -166,6 +166,11 @@ class DshBridge:
         self.auth_url = auth_url if auth_url is not None else os.environ.get("MIMI_DSH_AUTH_URL", "")
         self._auth = _DshAuth(self.auth_url, timeout)
 
+    @property
+    def auth(self) -> _DshAuth:
+        """Shared auth helper; the event thread must reuse this instance."""
+        return self._auth
+
     @staticmethod
     def _endpoint(method: str) -> str:
         """Normalize old dotted calls without putting them on the wire."""
