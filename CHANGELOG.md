@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.2 — 2026-09-05
+
+- 代码审查修复：双击可唤醒睡眠中的桌宠（原守卫顺序令该分支不可达，与文档承诺不符），并补回归测试。
+- DSH 消息气泡层记录锚点并在首次显示前定位，新气泡不再在屏幕左上角闪现一帧。
+- 移除 tick 中引用已删除 `FORTUNE_TEXTS` 的 fortune 气泡死代码块（对应动作已在 0.6.0 资产精简中退役）。
+- 小修：`affection` 去重 `source_label` 定义；`DshBridge` 新增公开 `auth` 访问器，集成层不再跨对象访问私有属性；`plugin_update` 补文件末尾换行。
+- 内置 Computer Use `0.2.0` 与动作素材不变；255 项 Python 测试通过。
+
 ## 0.6.1 — 2026-09-04
 
 - 适配 DeepSeek Harness `0.1.2-rc.1`：使用 `authenticatedUrl` 完成 Python 端一次性认证交换，认证 Cookie 仅保存在内存中。
